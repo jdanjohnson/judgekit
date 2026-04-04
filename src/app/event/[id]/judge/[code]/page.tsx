@@ -25,11 +25,11 @@ import {
   Star,
 } from "lucide-react";
 import { EventData, Assignment, Team, Criterion } from "@/lib/types";
-import { safeFetch } from "@/lib/fetch";
 
 export default function JudgePortal() {
   const params = useParams();
   const router = useRouter();
+  const eventId = params.id as string;
   const code = (params.code as string).toUpperCase();
 
   const [event, setEvent] = useState<EventData | null>(null);
@@ -40,9 +40,13 @@ export default function JudgePortal() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const eq = `eventId=${encodeURIComponent(eventId)}`;
+
   const fetchEvent = useCallback(async () => {
     try {
-      const res = await safeFetch("/api/event");
+      const res = await fetch(
+        `/api/event?id=${encodeURIComponent(eventId)}`
+      );
       if (res.ok) {
         const data = await res.json();
         setEvent(data);
@@ -59,16 +63,16 @@ export default function JudgePortal() {
       setError("Connection error.");
     }
     setLoading(false);
-  }, [code]);
+  }, [code, eventId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch
     fetchEvent();
   }, [fetchEvent]);
 
   const judge = event?.judges.find((j) => j.accessCode === code);
-  const myAssignments = event?.assignments.filter(
-    (a) => a.judgeId === judge?.id
-  ) || [];
+  const myAssignments =
+    event?.assignments.filter((a) => a.judgeId === judge?.id) || [];
   const completedCount = myAssignments.filter(
     (a) => a.status === "completed"
   ).length;
@@ -99,7 +103,7 @@ export default function JudgePortal() {
       const scoreArray = Object.entries(scores).map(
         ([criterionId, value]) => ({ criterionId, value })
       );
-      const res = await safeFetch("/api/assignments", {
+      const res = await fetch(`/api/assignments?${eq}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -221,7 +225,7 @@ export default function JudgePortal() {
                     )}
                   </div>
                   <Badge variant="outline">
-                    {scores[criterion.id] ?? "—"} / {criterion.maxScore}
+                    {scores[criterion.id] ?? "\u2014"} / {criterion.maxScore}
                   </Badge>
                 </div>
                 <div className="flex gap-2 flex-wrap">

@@ -22,11 +22,11 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { EventData, Assignment } from "@/lib/types";
-import { safeFetch } from "@/lib/fetch";
 
 export default function TeamView() {
   const params = useParams();
   const router = useRouter();
+  const eventId = params.id as string;
   const tableNumber = decodeURIComponent(params.tableNumber as string);
 
   const [event, setEvent] = useState<EventData | null>(null);
@@ -35,7 +35,9 @@ export default function TeamView() {
 
   const fetchEvent = useCallback(async () => {
     try {
-      const res = await safeFetch("/api/event");
+      const res = await fetch(
+        `/api/event?id=${encodeURIComponent(eventId)}`
+      );
       if (res.ok) {
         const data = await res.json();
         setEvent(data);
@@ -53,9 +55,10 @@ export default function TeamView() {
       setError("Connection error.");
     }
     setLoading(false);
-  }, [tableNumber]);
+  }, [tableNumber, eventId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch + polling
     fetchEvent();
     const interval = setInterval(fetchEvent, 15000);
     return () => clearInterval(interval);

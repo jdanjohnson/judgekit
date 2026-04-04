@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEvent } from "@/lib/store";
+import { EventData } from "@/lib/types";
 
 export async function GET(req: NextRequest) {
-  const event = getEvent();
+  const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId");
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: "eventId query parameter is required" },
+      { status: 400 }
+    );
+  }
+
+  const event = await getEvent(eventId);
   if (!event) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
 
-  const { searchParams } = new URL(req.url);
   const format = searchParams.get("format") || "json";
 
   if (format === "csv") {
@@ -18,10 +28,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(safeEvent);
 }
 
-function exportCSV(event: ReturnType<typeof getEvent>) {
-  if (!event) {
-    return NextResponse.json({ error: "No event found" }, { status: 404 });
-  }
+function exportCSV(event: EventData) {
 
   const headers = [
     "Team Name",

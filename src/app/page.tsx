@@ -15,16 +15,17 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { safeFetch } from "@/lib/fetch";
 import {
   ClipboardList,
   Shield,
   Users,
   Hash,
+  Link,
 } from "lucide-react";
 
 export default function HomePage() {
   const router = useRouter();
+  const [eventId, setEventId] = useState("");
   const [adminPin, setAdminPin] = useState("");
   const [judgeCode, setJudgeCode] = useState("");
   const [tableNumber, setTableNumber] = useState("");
@@ -35,20 +36,27 @@ export default function HomePage() {
 
   async function handleAdminLogin(e: React.FormEvent) {
     e.preventDefault();
+    if (!eventId.trim()) {
+      toast.error("Enter the event ID");
+      return;
+    }
     setLoading(true);
     try {
-      const res = await safeFetch("/api/admin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: adminPin }),
-      });
+      const res = await fetch(
+        `/api/admin?eventId=${encodeURIComponent(eventId.trim())}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pin: adminPin }),
+        }
+      );
       if (res.ok) {
         sessionStorage.setItem("adminPin", adminPin);
-        router.push("/admin");
+        router.push(`/event/${encodeURIComponent(eventId.trim())}/admin`);
       } else {
         const data = await res.json();
         if (res.status === 404) {
-          toast.error("No event exists yet. Create one first.");
+          toast.error("No event found with that ID.");
         } else {
           toast.error(data.error || "Invalid PIN");
         }
@@ -71,7 +79,7 @@ export default function HomePage() {
     }
     setLoading(true);
     try {
-      const res = await safeFetch("/api/event", {
+      const res = await fetch("/api/event", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -81,9 +89,10 @@ export default function HomePage() {
         }),
       });
       if (res.ok) {
+        const data = await res.json();
         sessionStorage.setItem("adminPin", newPin);
         toast.success("Event created!");
-        router.push("/admin");
+        router.push(`/event/${data.id}/admin`);
       } else {
         const data = await res.json();
         toast.error(data.error || "Failed to create event");
@@ -94,22 +103,24 @@ export default function HomePage() {
     setLoading(false);
   }
 
-  function handleJudgeLogin(e: React.FormEvent) {
+  function handleJoinEvent(e: React.FormEvent) {
     e.preventDefault();
-    if (!judgeCode.trim()) {
-      toast.error("Enter your judge access code");
+    if (!eventId.trim()) {
+      toast.error("Enter an event ID first");
       return;
     }
-    router.push(`/judge/${judgeCode.trim().toUpperCase()}`);
-  }
-
-  function handleTeamLookup(e: React.FormEvent) {
-    e.preventDefault();
-    if (!tableNumber.trim()) {
-      toast.error("Enter your table number");
-      return;
+    const eid = encodeURIComponent(eventId.trim());
+    if (judgeCode.trim()) {
+      router.push(
+        `/event/${eid}/judge/${encodeURIComponent(judgeCode.trim().toUpperCase())}`
+      );
+    } else if (tableNumber.trim()) {
+      router.push(
+        `/event/${eid}/team/${encodeURIComponent(tableNumber.trim())}`
+      );
+    } else {
+      toast.error("Enter a judge access code or table number");
     }
-    router.push(`/team/${encodeURIComponent(tableNumber.trim())}`);
   }
 
   return (
@@ -132,128 +143,33 @@ export default function HomePage() {
             <h2 className="text-3xl font-bold mb-2">Welcome to JudgeKit</h2>
             <p className="text-muted-foreground">
               Lightweight judging assignment and scoring for your event. No
-              accounts, no database — just fast, simple judging.
+              accounts needed — just fast, simple judging with shareable links.
             </p>
           </div>
 
-          <Tabs defaultValue="join" className="w-full">
+          <Tabs defaultValue="create" className="w-full">
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="join" className="gap-2">
-                <Users className="h-4 w-4" />
-                Join
+              <TabsTrigger value="create" className="gap-2">
+                <ClipboardList className="h-4 w-4" />
+                New Event
               </TabsTrigger>
               <TabsTrigger value="admin" className="gap-2">
                 <Shield className="h-4 w-4" />
                 Admin
               </TabsTrigger>
-              <TabsTrigger value="create" className="gap-2">
-                <ClipboardList className="h-4 w-4" />
-                New Event
+              <TabsTrigger value="join" className="gap-2">
+                <Users className="h-4 w-4" />
+                Join
               </TabsTrigger>
             </TabsList>
-
-            <TabsContent value="join">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Shield className="h-5 w-5" />
-                      Judge Portal
-                    </CardTitle>
-                    <CardDescription>
-                      Enter your 6-character access code to view assignments and
-                      score teams.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handleJudgeLogin} className="space-y-3">
-                      <div>
-                        <Label htmlFor="judgeCode">Access Code</Label>
-                        <Input
-                          id="judgeCode"
-                          placeholder="e.g. ABC123"
-                          value={judgeCode}
-                          onChange={(e) =>
-                            setJudgeCode(e.target.value.toUpperCase())
-                          }
-                          maxLength={6}
-                          className="font-mono text-lg tracking-widest"
-                        />
-                      </div>
-                      <Button type="submit" className="w-full">
-                        Enter as Judge
-                      </Button>
-                    </form>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Hash className="h-5 w-5" />
-                      Team View
-                    </CardTitle>
-                    <CardDescription>
-                      Enter your table number to see which judges are assigned to
-                      your team.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handleTeamLookup} className="space-y-3">
-                      <div>
-                        <Label htmlFor="tableNumber">Table Number</Label>
-                        <Input
-                          id="tableNumber"
-                          placeholder="e.g. 12"
-                          value={tableNumber}
-                          onChange={(e) => setTableNumber(e.target.value)}
-                        />
-                      </div>
-                      <Button type="submit" variant="outline" className="w-full">
-                        View Team Status
-                      </Button>
-                    </form>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="admin">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Admin Login</CardTitle>
-                  <CardDescription>
-                    Enter your admin PIN to manage the event, assign judges, and
-                    track progress.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleAdminLogin} className="space-y-3">
-                    <div>
-                      <Label htmlFor="adminPin">Admin PIN</Label>
-                      <Input
-                        id="adminPin"
-                        type="password"
-                        placeholder="Enter admin PIN"
-                        value={adminPin}
-                        onChange={(e) => setAdminPin(e.target.value)}
-                      />
-                    </div>
-                    <Button type="submit" className="w-full" disabled={loading}>
-                      {loading ? "Logging in..." : "Enter Admin Dashboard"}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </TabsContent>
 
             <TabsContent value="create">
               <Card>
                 <CardHeader>
                   <CardTitle>Create New Event</CardTitle>
                   <CardDescription>
-                    Set up a new hackathon or science fair judging event. You can
-                    add teams, judges, and scoring criteria after creation.
+                    Set up a new hackathon or science fair judging event.
+                    You&apos;ll get a shareable event link for judges and teams.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -297,12 +213,111 @@ export default function HomePage() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            <TabsContent value="admin">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Admin Login</CardTitle>
+                  <CardDescription>
+                    Enter your event ID and admin PIN to manage an existing
+                    event.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleAdminLogin} className="space-y-3">
+                    <div>
+                      <Label htmlFor="adminEventId">Event ID</Label>
+                      <Input
+                        id="adminEventId"
+                        placeholder="e.g. abc12345"
+                        value={eventId}
+                        onChange={(e) => setEventId(e.target.value)}
+                        className="font-mono"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="adminPin">Admin PIN</Label>
+                      <Input
+                        id="adminPin"
+                        type="password"
+                        placeholder="Enter admin PIN"
+                        value={adminPin}
+                        onChange={(e) => setAdminPin(e.target.value)}
+                      />
+                    </div>
+                    <Button type="submit" className="w-full" disabled={loading}>
+                      {loading ? "Logging in..." : "Enter Admin Dashboard"}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="join">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Link className="h-5 w-5" />
+                    Join an Event
+                  </CardTitle>
+                  <CardDescription>
+                    Enter the event ID you received, then your judge code or
+                    table number. Or use the direct link shared with you.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleJoinEvent} className="space-y-4">
+                    <div>
+                      <Label htmlFor="joinEventId">Event ID</Label>
+                      <Input
+                        id="joinEventId"
+                        placeholder="e.g. abc12345"
+                        value={eventId}
+                        onChange={(e) => setEventId(e.target.value)}
+                        className="font-mono"
+                      />
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <Label htmlFor="judgeCode" className="flex items-center gap-1">
+                          <Shield className="h-3 w-3" /> Judge Code
+                        </Label>
+                        <Input
+                          id="judgeCode"
+                          placeholder="e.g. ABC123"
+                          value={judgeCode}
+                          onChange={(e) =>
+                            setJudgeCode(e.target.value.toUpperCase())
+                          }
+                          maxLength={6}
+                          className="font-mono text-lg tracking-widest"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="tableNumber" className="flex items-center gap-1">
+                          <Hash className="h-3 w-3" /> Table Number
+                        </Label>
+                        <Input
+                          id="tableNumber"
+                          placeholder="e.g. 12"
+                          value={tableNumber}
+                          onChange={(e) => setTableNumber(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <Button type="submit" className="w-full">
+                      Join Event
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
           </Tabs>
         </div>
       </main>
 
       <footer className="border-t py-4 text-center text-sm text-muted-foreground">
-        JudgeKit — No database, no accounts. Just judging.
+        JudgeKit — Shareable judging for hackathons and science fairs.
       </footer>
     </div>
   );

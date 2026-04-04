@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEvent, updateEvent } from "@/lib/store";
+import { updateEvent } from "@/lib/store";
 import { Criterion } from "@/lib/types";
 import { v4 as uuidv4 } from "uuid";
 
-export async function GET() {
-  const event = getEvent();
-  if (!event) {
-    return NextResponse.json({ error: "No event found" }, { status: 404 });
-  }
-  return NextResponse.json(event.criteria);
-}
-
 export async function POST(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId");
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: "eventId query parameter is required" },
+      { status: 400 }
+    );
+  }
+
   const body = await req.json();
   const { name, description, maxScore, weight } = body;
 
@@ -30,7 +32,7 @@ export async function POST(req: NextRequest) {
     weight: weight !== undefined ? Number(weight) : 1,
   };
 
-  const updated = updateEvent((event) => ({
+  const updated = await updateEvent(eventId, (event) => ({
     ...event,
     criteria: [...event.criteria, criterion],
   }));
@@ -43,6 +45,16 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId");
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: "eventId query parameter is required" },
+      { status: 400 }
+    );
+  }
+
   const body = await req.json();
   const { id, name, description, maxScore, weight } = body;
 
@@ -50,7 +62,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  const updated = updateEvent((event) => ({
+  const updated = await updateEvent(eventId, (event) => ({
     ...event,
     criteria: event.criteria.map((c) =>
       c.id === id
@@ -69,20 +81,26 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
 
-  return NextResponse.json(
-    updated.criteria.find((c) => c.id === id)
-  );
+  return NextResponse.json(updated.criteria.find((c) => c.id === id));
 }
 
 export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId");
   const id = searchParams.get("id");
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: "eventId query parameter is required" },
+      { status: 400 }
+    );
+  }
 
   if (!id) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  const updated = updateEvent((event) => ({
+  const updated = await updateEvent(eventId, (event) => ({
     ...event,
     criteria: event.criteria.filter((c) => c.id !== id),
     assignments: event.assignments.map((a) => ({

@@ -1,63 +1,55 @@
-import fs from "fs";
-import path from "path";
+import { Redis } from "@upstash/redis";
 import { EventData } from "./types";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const DATA_FILE = path.join(DATA_DIR, "event.json");
+function getRedis(): Redis {
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
-let cachedEvent: EventData | null = null;
-
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!url || !token) {
+    throw new Error(
+      "Redis credentials not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN environment variables."
+    );
   }
+
+  return new Redis({ url, token });
 }
 
-function loadFromDisk(): EventData | null {
-  ensureDataDir();
-  if (fs.existsSync(DATA_FILE)) {
-    try {
-      const raw = fs.readFileSync(DATA_FILE, "utf-8");
-      return JSON.parse(raw) as EventData;
-    } catch {
-      return null;
-    }
-  }
-  return null;
+export async function getEvent(eventId: string): Promise<EventData | null> {
+  const redis = getRedis();
+  const data = await redis.get<EventData>(`event:${eventId}`);
+  return data ?? null;
 }
 
-function saveToDisk(event: EventData) {
-  ensureDataDir();
-  fs.writeFileSync(DATA_FILE, JSON.stringify(event, null, 2), "utf-8");
-}
-
-export function getEvent(): EventData | null {
-  if (!cachedEvent) {
-    cachedEvent = loadFromDisk();
-  }
-  return cachedEvent;
-}
-
-export function setEvent(event: EventData): EventData {
-  cachedEvent = event;
-  saveToDisk(event);
+export async function setEvent(event: EventData): Promise<EventData> {
+  const redis = getRedis();
+  await redis.set(`event:${event.id}`, JSON.stringify(event));
   return event;
 }
 
-export function updateEvent(
+export async function updateEvent(
+  eventId: string,
   updater: (event: EventData) => EventData
-): EventData | null {
-  const current = getEvent();
+): Promise<EventData | null> {
+  const current = await getEvent(eventId);
   if (!current) return null;
   const updated = updater(current);
   return setEvent(updated);
 }
 
-export function deleteEvent(): void {
-  cachedEvent = null;
-  if (fs.existsSync(DATA_FILE)) {
-    fs.unlinkSync(DATA_FILE);
+export async function deleteEvent(eventId: string): Promise<void> {
+  const redis = getRedis();
+  await redis.del(`event:${eventId}`);
+}
+
+export function generateEventId(): string {
+  const chars = "abcdefghjkmnpqrstuvwxyz23456789";
+  let id = "";
+  for (let i = 0; i < 8; i++) {
+    id += chars[Math.floor(Math.random() * chars.length)];
   }
+  return id;
 }
 
 export function generateAccessCode(): string {

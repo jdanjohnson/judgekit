@@ -1,10 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEvent, setEvent, updateEvent, deleteEvent } from "@/lib/store";
+import {
+  getEvent,
+  setEvent,
+  updateEvent,
+  deleteEvent,
+  generateEventId,
+} from "@/lib/store";
 import { EventData } from "@/lib/types";
-import { v4 as uuidv4 } from "uuid";
 
-export async function GET() {
-  const event = getEvent();
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return NextResponse.json(
+      { error: "id query parameter is required" },
+      { status: 400 }
+    );
+  }
+
+  const event = await getEvent(id);
   if (!event) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
@@ -13,14 +28,6 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const existing = getEvent();
-  if (existing) {
-    return NextResponse.json(
-      { error: "Event already exists. Delete first to create a new one." },
-      { status: 409 }
-    );
-  }
-
   const body = await req.json();
   const { name, description, adminPin } = body;
 
@@ -32,7 +39,7 @@ export async function POST(req: NextRequest) {
   }
 
   const event: EventData = {
-    id: uuidv4(),
+    id: generateEventId(),
     name,
     description: description || "",
     adminPin,
@@ -43,16 +50,26 @@ export async function POST(req: NextRequest) {
     createdAt: new Date().toISOString(),
   };
 
-  setEvent(event);
+  await setEvent(event);
   const { adminPin: _p, ...safeCreated } = event;
   return NextResponse.json(safeCreated, { status: 201 });
 }
 
 export async function PUT(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return NextResponse.json(
+      { error: "id query parameter is required" },
+      { status: 400 }
+    );
+  }
+
   const body = await req.json();
   const { name, description } = body;
 
-  const updated = updateEvent((event) => ({
+  const updated = await updateEvent(id, (event) => ({
     ...event,
     name: name ?? event.name,
     description: description ?? event.description,
@@ -66,7 +83,17 @@ export async function PUT(req: NextRequest) {
   return NextResponse.json(safeUpdated);
 }
 
-export async function DELETE() {
-  deleteEvent();
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return NextResponse.json(
+      { error: "id query parameter is required" },
+      { status: 400 }
+    );
+  }
+
+  await deleteEvent(id);
   return NextResponse.json({ success: true });
 }

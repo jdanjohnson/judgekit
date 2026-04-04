@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,7 +26,6 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { safeFetch } from "@/lib/fetch";
 import {
   ClipboardList,
   Plus,
@@ -39,11 +38,15 @@ import {
   ArrowLeft,
   Copy,
   BarChart3,
+  Link,
 } from "lucide-react";
 import { EventData, Team, Judge, Criterion } from "@/lib/types";
 
 export default function AdminPage() {
+  const params = useParams();
   const router = useRouter();
+  const eventId = params.id as string;
+
   const [event, setEvent] = useState<EventData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -61,7 +64,7 @@ export default function AdminPage() {
 
   const fetchEvent = useCallback(async () => {
     try {
-      const res = await safeFetch("/api/event");
+      const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`);
       if (res.ok) {
         const data = await res.json();
         setEvent(data);
@@ -72,7 +75,7 @@ export default function AdminPage() {
       toast.error("Failed to load event");
     }
     setLoading(false);
-  }, [router]);
+  }, [router, eventId]);
 
   useEffect(() => {
     const pin = sessionStorage.getItem("adminPin");
@@ -80,8 +83,11 @@ export default function AdminPage() {
       router.push("/");
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch
     fetchEvent();
   }, [router, fetchEvent]);
+
+  const eq = `eventId=${encodeURIComponent(eventId)}`;
 
   async function addTeam(e: React.FormEvent) {
     e.preventDefault();
@@ -90,7 +96,7 @@ export default function AdminPage() {
       return;
     }
     try {
-      const res = await safeFetch("/api/teams", {
+      const res = await fetch(`/api/teams?${eq}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -118,7 +124,7 @@ export default function AdminPage() {
 
   async function deleteTeam(id: string) {
     try {
-      await safeFetch(`/api/teams?id=${id}`, { method: "DELETE" });
+      await fetch(`/api/teams?${eq}&id=${id}`, { method: "DELETE" });
       toast.success("Team removed");
       fetchEvent();
     } catch {
@@ -133,7 +139,7 @@ export default function AdminPage() {
       return;
     }
     try {
-      const res = await safeFetch("/api/judges", {
+      const res = await fetch(`/api/judges?${eq}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: judgeName }),
@@ -153,7 +159,7 @@ export default function AdminPage() {
 
   async function deleteJudge(id: string) {
     try {
-      await safeFetch(`/api/judges?id=${id}`, { method: "DELETE" });
+      await fetch(`/api/judges?${eq}&id=${id}`, { method: "DELETE" });
       toast.success("Judge removed");
       fetchEvent();
     } catch {
@@ -168,7 +174,7 @@ export default function AdminPage() {
       return;
     }
     try {
-      const res = await safeFetch("/api/criteria", {
+      const res = await fetch(`/api/criteria?${eq}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -196,7 +202,7 @@ export default function AdminPage() {
 
   async function deleteCriterion(id: string) {
     try {
-      await safeFetch(`/api/criteria?id=${id}`, { method: "DELETE" });
+      await fetch(`/api/criteria?${eq}&id=${id}`, { method: "DELETE" });
       toast.success("Criterion removed");
       fetchEvent();
     } catch {
@@ -206,7 +212,7 @@ export default function AdminPage() {
 
   async function autoAssign() {
     try {
-      const res = await safeFetch("/api/assignments", {
+      const res = await fetch(`/api/assignments?${eq}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -231,7 +237,9 @@ export default function AdminPage() {
     if (!event) return;
     try {
       for (const a of event.assignments) {
-        await safeFetch(`/api/assignments?id=${a.id}`, { method: "DELETE" });
+        await fetch(`/api/assignments?${eq}&id=${a.id}`, {
+          method: "DELETE",
+        });
       }
       toast.success("All assignments cleared");
       fetchEvent();
@@ -242,7 +250,7 @@ export default function AdminPage() {
 
   async function addSingleAssignment(judgeId: string, teamId: string) {
     try {
-      const res = await safeFetch("/api/assignments", {
+      const res = await fetch(`/api/assignments?${eq}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ judgeId, teamId }),
@@ -261,7 +269,7 @@ export default function AdminPage() {
 
   async function removeAssignment(id: string) {
     try {
-      await safeFetch(`/api/assignments?id=${id}`, { method: "DELETE" });
+      await fetch(`/api/assignments?${eq}&id=${id}`, { method: "DELETE" });
       toast.success("Assignment removed");
       fetchEvent();
     } catch {
@@ -269,9 +277,15 @@ export default function AdminPage() {
     }
   }
 
-  function copyCode(code: string) {
-    navigator.clipboard.writeText(code);
-    toast.success(`Copied: ${code}`);
+  function copyToClipboard(text: string, label: string) {
+    navigator.clipboard.writeText(text);
+    toast.success(`Copied: ${label}`);
+  }
+
+  function getBaseUrl() {
+    return typeof window !== "undefined"
+      ? `${window.location.protocol}//${window.location.host}`
+      : "";
   }
 
   if (loading) {
@@ -308,16 +322,15 @@ export default function AdminPage() {
             <ClipboardList className="h-6 w-6 text-primary" />
             <div>
               <h1 className="font-bold">{event.name}</h1>
-              <p className="text-xs text-muted-foreground">Admin Dashboard</p>
+              <p className="text-xs text-muted-foreground">
+                Admin Dashboard &middot; Event ID:{" "}
+                <code className="font-mono">{eventId}</code>
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="secondary">
-              {event.teams.length} Teams
-            </Badge>
-            <Badge variant="secondary">
-              {event.judges.length} Judges
-            </Badge>
+            <Badge variant="secondary">{event.teams.length} Teams</Badge>
+            <Badge variant="secondary">{event.judges.length} Judges</Badge>
             <Badge variant={progressPercent === 100 ? "default" : "outline"}>
               {progressPercent}% Complete
             </Badge>
@@ -342,7 +355,7 @@ export default function AdminPage() {
         </Card>
 
         <Tabs defaultValue="teams" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="teams" className="gap-1">
               <Users className="h-4 w-4" />
               Teams
@@ -362,6 +375,10 @@ export default function AdminPage() {
             <TabsTrigger value="results" className="gap-1">
               <Download className="h-4 w-4" />
               Results
+            </TabsTrigger>
+            <TabsTrigger value="share" className="gap-1">
+              <Link className="h-4 w-4" />
+              Share
             </TabsTrigger>
           </TabsList>
 
@@ -438,13 +455,15 @@ export default function AdminPage() {
                         {event.teams.map((team: Team) => (
                           <TableRow key={team.id}>
                             <TableCell>
-                              <Badge variant="outline">{team.tableNumber}</Badge>
+                              <Badge variant="outline">
+                                {team.tableNumber}
+                              </Badge>
                             </TableCell>
                             <TableCell className="font-medium">
                               {team.name}
                             </TableCell>
                             <TableCell className="text-muted-foreground">
-                              {team.projectName || "—"}
+                              {team.projectName || "\u2014"}
                             </TableCell>
                             <TableCell>
                               <Button
@@ -497,7 +516,8 @@ export default function AdminPage() {
                     Judges ({event.judges.length})
                   </CardTitle>
                   <CardDescription>
-                    Share access codes with judges so they can log in.
+                    Share access codes or direct links with judges so they can
+                    log in.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -538,13 +558,20 @@ export default function AdminPage() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-7 w-7"
-                                    onClick={() => copyCode(judge.accessCode)}
+                                    onClick={() =>
+                                      copyToClipboard(
+                                        judge.accessCode,
+                                        judge.accessCode
+                                      )
+                                    }
                                   >
                                     <Copy className="h-3 w-3" />
                                   </Button>
                                 </div>
                               </TableCell>
-                              <TableCell>{judgeAssignments.length}</TableCell>
+                              <TableCell>
+                                {judgeAssignments.length}
+                              </TableCell>
                               <TableCell>
                                 <Badge
                                   variant={
@@ -664,7 +691,7 @@ export default function AdminPage() {
                               {criterion.name}
                             </TableCell>
                             <TableCell className="text-muted-foreground">
-                              {criterion.description || "—"}
+                              {criterion.description || "\u2014"}
                             </TableCell>
                             <TableCell>{criterion.maxScore}</TableCell>
                             <TableCell>{criterion.weight}x</TableCell>
@@ -841,7 +868,10 @@ export default function AdminPage() {
                 <div className="flex gap-3">
                   <Button
                     onClick={() => {
-                      window.open("/api/export?format=csv", "_blank");
+                      window.open(
+                        `/api/export?${eq}&format=csv`,
+                        "_blank"
+                      );
                     }}
                     className="gap-2"
                   >
@@ -850,7 +880,10 @@ export default function AdminPage() {
                   <Button
                     variant="outline"
                     onClick={() => {
-                      window.open("/api/export?format=json", "_blank");
+                      window.open(
+                        `/api/export?${eq}&format=json`,
+                        "_blank"
+                      );
                     }}
                     className="gap-2"
                   >
@@ -908,7 +941,11 @@ export default function AdminPage() {
                                 totals.reduce((a, b) => a + b, 0) /
                                 totals.length;
                             }
-                            return { team, avgScore, count: teamAssignments.length };
+                            return {
+                              team,
+                              avgScore,
+                              count: teamAssignments.length,
+                            };
                           })
                           .sort((a, b) => b.avgScore - a.avgScore)
                           .map((item, index) => (
@@ -929,7 +966,7 @@ export default function AdminPage() {
                               <TableCell>
                                 {item.avgScore > 0
                                   ? `${item.avgScore.toFixed(1)}%`
-                                  : "—"}
+                                  : "\u2014"}
                               </TableCell>
                               <TableCell>{item.count}</TableCell>
                             </TableRow>
@@ -938,6 +975,140 @@ export default function AdminPage() {
                     </Table>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="share">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Link className="h-5 w-5" /> Shareable Links
+                </CardTitle>
+                <CardDescription>
+                  Share these links with judges and teams so they can access the
+                  event directly.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div>
+                  <Label className="text-sm font-medium">Event ID</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="bg-muted px-3 py-2 rounded font-mono text-sm flex-1">
+                      {eventId}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard(eventId, "Event ID")}
+                      className="gap-1"
+                    >
+                      <Copy className="h-3 w-3" /> Copy
+                    </Button>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <Label className="text-sm font-medium">Admin Link</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="bg-muted px-3 py-2 rounded font-mono text-xs flex-1 truncate">
+                      {getBaseUrl()}/event/{eventId}/admin
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        copyToClipboard(
+                          `${getBaseUrl()}/event/${eventId}/admin`,
+                          "Admin link"
+                        )
+                      }
+                      className="gap-1"
+                    >
+                      <Copy className="h-3 w-3" /> Copy
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Requires admin PIN to access.
+                  </p>
+                </div>
+
+                <Separator />
+
+                {event.judges.length > 0 && (
+                  <div>
+                    <Label className="text-sm font-medium">Judge Links</Label>
+                    <div className="space-y-2 mt-2">
+                      {event.judges.map((judge: Judge) => (
+                        <div
+                          key={judge.id}
+                          className="flex items-center gap-2"
+                        >
+                          <span className="text-sm w-32 truncate">
+                            {judge.name}
+                          </span>
+                          <code className="bg-muted px-2 py-1 rounded font-mono text-xs flex-1 truncate">
+                            {getBaseUrl()}/event/{eventId}/judge/
+                            {judge.accessCode}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0"
+                            onClick={() =>
+                              copyToClipboard(
+                                `${getBaseUrl()}/event/${eventId}/judge/${judge.accessCode}`,
+                                `${judge.name}'s link`
+                              )
+                            }
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {event.teams.length > 0 && (
+                  <>
+                    <Separator />
+                    <div>
+                      <Label className="text-sm font-medium">Team Links</Label>
+                      <div className="space-y-2 mt-2">
+                        {event.teams.map((team: Team) => (
+                          <div
+                            key={team.id}
+                            className="flex items-center gap-2"
+                          >
+                            <span className="text-sm w-32 truncate">
+                              #{team.tableNumber} {team.name}
+                            </span>
+                            <code className="bg-muted px-2 py-1 rounded font-mono text-xs flex-1 truncate">
+                              {getBaseUrl()}/event/{eventId}/team/
+                              {team.tableNumber}
+                            </code>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0"
+                              onClick={() =>
+                                copyToClipboard(
+                                  `${getBaseUrl()}/event/${eventId}/team/${team.tableNumber}`,
+                                  `Table ${team.tableNumber} link`
+                                )
+                              }
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

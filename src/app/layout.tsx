@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "JudgeKit - Hackathon & Science Fair Judging",
   description:
-    "Lightweight judging assignment, scoring, and progress tracker for hackathons and science fairs. No database required.",
+    "Lightweight judging assignment, scoring, and progress tracker for hackathons and science fairs. Shareable links, no accounts needed.",
 };
 
 export default function RootLayout({

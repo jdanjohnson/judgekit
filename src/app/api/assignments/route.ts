@@ -3,32 +3,21 @@ import { getEvent, updateEvent } from "@/lib/store";
 import { Assignment } from "@/lib/types";
 import { v4 as uuidv4 } from "uuid";
 
-export async function GET(req: NextRequest) {
-  const event = getEvent();
-  if (!event) {
-    return NextResponse.json({ error: "No event found" }, { status: 404 });
-  }
-
-  const { searchParams } = new URL(req.url);
-  const judgeId = searchParams.get("judgeId");
-  const teamId = searchParams.get("teamId");
-
-  let assignments = event.assignments;
-  if (judgeId) {
-    assignments = assignments.filter((a) => a.judgeId === judgeId);
-  }
-  if (teamId) {
-    assignments = assignments.filter((a) => a.teamId === teamId);
-  }
-
-  return NextResponse.json(assignments);
-}
-
 export async function POST(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId");
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: "eventId query parameter is required" },
+      { status: 400 }
+    );
+  }
+
   const body = await req.json();
 
   if (body.autoAssign) {
-    return handleAutoAssign(body.judgesPerTeam || 3);
+    return handleAutoAssign(eventId, body.judgesPerTeam || 3);
   }
 
   const { judgeId, teamId } = body;
@@ -39,7 +28,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const event = getEvent();
+  const event = await getEvent(eventId);
   if (!event) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
@@ -63,7 +52,7 @@ export async function POST(req: NextRequest) {
     status: "pending",
   };
 
-  const updated = updateEvent((ev) => ({
+  const updated = await updateEvent(eventId, (ev) => ({
     ...ev,
     assignments: [...ev.assignments, assignment],
   }));
@@ -75,8 +64,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(assignment, { status: 201 });
 }
 
-function handleAutoAssign(judgesPerTeam: number) {
-  const event = getEvent();
+async function handleAutoAssign(eventId: string, judgesPerTeam: number) {
+  const event = await getEvent(eventId);
   if (!event) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
@@ -99,7 +88,6 @@ function handleAutoAssign(judgesPerTeam: number) {
     judgeLoad[j.id] = 0;
   });
 
-  // Count existing assignments
   event.assignments.forEach((a) => {
     if (judgeLoad[a.judgeId] !== undefined) {
       judgeLoad[a.judgeId]++;
@@ -133,7 +121,7 @@ function handleAutoAssign(judgesPerTeam: number) {
     }
   }
 
-  const updated = updateEvent((ev) => ({
+  const updated = await updateEvent(eventId, (ev) => ({
     ...ev,
     assignments: [...ev.assignments, ...newAssignments],
   }));
@@ -149,6 +137,16 @@ function handleAutoAssign(judgesPerTeam: number) {
 }
 
 export async function PUT(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId");
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: "eventId query parameter is required" },
+      { status: 400 }
+    );
+  }
+
   const body = await req.json();
   const { id, scores, notes, status } = body;
 
@@ -156,7 +154,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  const updated = updateEvent((event) => ({
+  const updated = await updateEvent(eventId, (event) => ({
     ...event,
     assignments: event.assignments.map((a) =>
       a.id === id
@@ -174,20 +172,26 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
 
-  return NextResponse.json(
-    updated.assignments.find((a) => a.id === id)
-  );
+  return NextResponse.json(updated.assignments.find((a) => a.id === id));
 }
 
 export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId");
   const id = searchParams.get("id");
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: "eventId query parameter is required" },
+      { status: 400 }
+    );
+  }
 
   if (!id) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  const updated = updateEvent((event) => ({
+  const updated = await updateEvent(eventId, (event) => ({
     ...event,
     assignments: event.assignments.filter((a) => a.id !== id),
   }));

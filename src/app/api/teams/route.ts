@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEvent, updateEvent } from "@/lib/store";
+import { updateEvent } from "@/lib/store";
 import { Team } from "@/lib/types";
 import { v4 as uuidv4 } from "uuid";
 
-export async function GET() {
-  const event = getEvent();
-  if (!event) {
-    return NextResponse.json({ error: "No event found" }, { status: 404 });
-  }
-  return NextResponse.json(event.teams);
-}
-
 export async function POST(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId");
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: "eventId query parameter is required" },
+      { status: 400 }
+    );
+  }
+
   const body = await req.json();
   const { name, tableNumber, projectName, description } = body;
 
@@ -30,7 +32,7 @@ export async function POST(req: NextRequest) {
     description: description || "",
   };
 
-  const updated = updateEvent((event) => ({
+  const updated = await updateEvent(eventId, (event) => ({
     ...event,
     teams: [...event.teams, team],
   }));
@@ -43,6 +45,16 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId");
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: "eventId query parameter is required" },
+      { status: 400 }
+    );
+  }
+
   const body = await req.json();
   const { id, name, tableNumber, projectName, description } = body;
 
@@ -50,7 +62,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  const updated = updateEvent((event) => ({
+  const updated = await updateEvent(eventId, (event) => ({
     ...event,
     teams: event.teams.map((t) =>
       t.id === id
@@ -69,20 +81,26 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
 
-  return NextResponse.json(
-    updated.teams.find((t) => t.id === id)
-  );
+  return NextResponse.json(updated.teams.find((t) => t.id === id));
 }
 
 export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId");
   const id = searchParams.get("id");
+
+  if (!eventId) {
+    return NextResponse.json(
+      { error: "eventId query parameter is required" },
+      { status: 400 }
+    );
+  }
 
   if (!id) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  const updated = updateEvent((event) => ({
+  const updated = await updateEvent(eventId, (event) => ({
     ...event,
     teams: event.teams.filter((t) => t.id !== id),
     assignments: event.assignments.filter((a) => a.teamId !== id),
