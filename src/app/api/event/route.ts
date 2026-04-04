@@ -62,7 +62,8 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
 
-  return NextResponse.json(updated);
+  const { adminPin: _pin2, ...safeUpdated } = updated;
+  return NextResponse.json(safeUpdated);
 }
 
 export async function DELETE() {

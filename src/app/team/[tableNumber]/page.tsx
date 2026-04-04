@@ -38,6 +38,7 @@ export default function TeamView() {
       if (res.ok) {
         const data = await res.json();
         setEvent(data);
+        setError("");
         const team = data.teams.find(
           (t: { tableNumber: string }) => t.tableNumber === tableNumber
         );
