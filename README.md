@@ -1,36 +1,60 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# JudgeKit
 
-## Getting Started
+Lightweight hackathon & science fair judging tool. Assign judges to teams, score on configurable criteria, track progress, and export results. **No database required** — data is stored in a single JSON file.
 
-First, run the development server:
+## Features
+
+- **Admin Dashboard** — Create events, add teams (with table numbers), add judges (auto-generated access codes), configure scoring criteria, assign judges manually or auto-distribute
+- **Judge Portal** — Judges enter a 6-character code to see assigned teams, browse before starting, score on each criterion, add notes, and submit
+- **Team View** — Teams enter their table number to see assigned judges and judging progress (auto-refreshes)
+- **Assignment Matrix** — Visual grid showing all judge-team assignments with status colors
+- **Auto-Assign** — Evenly distribute judges across teams with one click
+- **Export** — Download results as CSV (for Excel/Sheets) or JSON
+- **Rankings** — Live weighted-average team rankings in the admin dashboard
+
+## Quick Start
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) and create a new event.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How It Works
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **Create an event** with a name and admin PIN
+2. **Add teams** with table numbers and optional project names
+3. **Add judges** — each gets a unique 6-character access code
+4. **Set scoring criteria** — name, max score, and weight
+5. **Assign judges to teams** — manually via the matrix or auto-assign
+6. **Share access codes** with judges and **table numbers** with teams
+7. **Judges score** teams through their portal
+8. **Export results** when judging is complete
 
-## Learn More
+## Data Storage
 
-To learn more about Next.js, take a look at the following resources:
+All data is stored in `data/event.json` on the server. No external database is needed.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Data persists across server restarts
+- Export to CSV/JSON when the event is over
+- Delete the JSON file to start fresh
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deployment
 
-## Deploy on Vercel
+Works on any Node.js host:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run build
+npm start
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Deploy to Railway, Render, Fly.io, or any VPS. The only requirement is a writable filesystem for the `data/` directory.
+
+## Tech Stack
+
+- [Next.js](https://nextjs.org) 16 (App Router)
+- [TypeScript](https://www.typescriptlang.org)
+- [Tailwind CSS](https://tailwindcss.com)
+- [shadcn/ui](https://ui.shadcn.com)
+- JSON file storage (zero dependencies)
