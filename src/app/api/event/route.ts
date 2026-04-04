@@ -44,7 +44,8 @@ export async function POST(req: NextRequest) {
   };
 
   setEvent(event);
-  return NextResponse.json(event, { status: 201 });
+  const { adminPin: _p, ...safeCreated } = event;
+  return NextResponse.json(safeCreated, { status: 201 });
 }
 
 export async function PUT(req: NextRequest) {

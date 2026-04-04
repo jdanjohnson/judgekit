@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
     return exportCSV(event);
   }
 
-  return NextResponse.json(event);
+  const { adminPin: _pin, ...safeEvent } = event;
+  return NextResponse.json(safeEvent);
 }
 
 function exportCSV(event: ReturnType<typeof getEvent>) {
