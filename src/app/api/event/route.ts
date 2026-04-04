@@ -8,7 +8,8 @@ export async function GET() {
   if (!event) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
-  return NextResponse.json(event);
+  const { adminPin: _pin, ...safeEvent } = event;
+  return NextResponse.json(safeEvent);
 }
 
 export async function POST(req: NextRequest) {

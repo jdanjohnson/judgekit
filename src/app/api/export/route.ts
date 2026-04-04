@@ -65,12 +65,12 @@ function exportCSV(event: ReturnType<typeof getEvent>) {
       assignment.status,
       ...criteriaScores,
       normalizedTotal,
-      assignment.notes.replace(/"/g, '""'),
-    ]);
+      assignment.notes,
+    ].map((cell) => cell.replace(/"/g, '""')));
   }
 
   const csvContent = [
-    headers.map((h) => `"${h}"`).join(","),
+    headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(","),
     ...rows.map((r) => r.map((cell) => `"${cell}"`).join(",")),
   ].join("\n");
 
