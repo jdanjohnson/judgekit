@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { safeFetch } from "@/lib/fetch";
 import {
   ClipboardList,
   Shield,
@@ -36,7 +37,7 @@ export default function HomePage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch("/api/admin", {
+      const res = await safeFetch("/api/admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pin: adminPin }),
@@ -52,8 +53,8 @@ export default function HomePage() {
           toast.error(data.error || "Invalid PIN");
         }
       }
-    } catch {
-      toast.error("Connection error");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Connection error");
     }
     setLoading(false);
   }
@@ -70,7 +71,7 @@ export default function HomePage() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/event", {
+      const res = await safeFetch("/api/event", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -87,8 +88,8 @@ export default function HomePage() {
         const data = await res.json();
         toast.error(data.error || "Failed to create event");
       }
-    } catch {
-      toast.error("Connection error");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Connection error");
     }
     setLoading(false);
   }

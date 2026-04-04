@@ -22,6 +22,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { EventData, Assignment } from "@/lib/types";
+import { safeFetch } from "@/lib/fetch";
 
 export default function TeamView() {
   const params = useParams();
@@ -34,7 +35,7 @@ export default function TeamView() {
 
   const fetchEvent = useCallback(async () => {
     try {
-      const res = await fetch("/api/event");
+      const res = await safeFetch("/api/event");
       if (res.ok) {
         const data = await res.json();
         setEvent(data);

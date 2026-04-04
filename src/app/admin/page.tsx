@@ -26,6 +26,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
+import { safeFetch } from "@/lib/fetch";
 import {
   ClipboardList,
   Plus,
@@ -60,7 +61,7 @@ export default function AdminPage() {
 
   const fetchEvent = useCallback(async () => {
     try {
-      const res = await fetch("/api/event");
+      const res = await safeFetch("/api/event");
       if (res.ok) {
         const data = await res.json();
         setEvent(data);
@@ -89,7 +90,7 @@ export default function AdminPage() {
       return;
     }
     try {
-      const res = await fetch("/api/teams", {
+      const res = await safeFetch("/api/teams", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -117,7 +118,7 @@ export default function AdminPage() {
 
   async function deleteTeam(id: string) {
     try {
-      await fetch(`/api/teams?id=${id}`, { method: "DELETE" });
+      await safeFetch(`/api/teams?id=${id}`, { method: "DELETE" });
       toast.success("Team removed");
       fetchEvent();
     } catch {
@@ -132,7 +133,7 @@ export default function AdminPage() {
       return;
     }
     try {
-      const res = await fetch("/api/judges", {
+      const res = await safeFetch("/api/judges", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: judgeName }),
@@ -152,7 +153,7 @@ export default function AdminPage() {
 
   async function deleteJudge(id: string) {
     try {
-      await fetch(`/api/judges?id=${id}`, { method: "DELETE" });
+      await safeFetch(`/api/judges?id=${id}`, { method: "DELETE" });
       toast.success("Judge removed");
       fetchEvent();
     } catch {
@@ -167,7 +168,7 @@ export default function AdminPage() {
       return;
     }
     try {
-      const res = await fetch("/api/criteria", {
+      const res = await safeFetch("/api/criteria", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -195,7 +196,7 @@ export default function AdminPage() {
 
   async function deleteCriterion(id: string) {
     try {
-      await fetch(`/api/criteria?id=${id}`, { method: "DELETE" });
+      await safeFetch(`/api/criteria?id=${id}`, { method: "DELETE" });
       toast.success("Criterion removed");
       fetchEvent();
     } catch {
@@ -205,7 +206,7 @@ export default function AdminPage() {
 
   async function autoAssign() {
     try {
-      const res = await fetch("/api/assignments", {
+      const res = await safeFetch("/api/assignments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -230,7 +231,7 @@ export default function AdminPage() {
     if (!event) return;
     try {
       for (const a of event.assignments) {
-        await fetch(`/api/assignments?id=${a.id}`, { method: "DELETE" });
+        await safeFetch(`/api/assignments?id=${a.id}`, { method: "DELETE" });
       }
       toast.success("All assignments cleared");
       fetchEvent();
@@ -241,7 +242,7 @@ export default function AdminPage() {
 
   async function addSingleAssignment(judgeId: string, teamId: string) {
     try {
-      const res = await fetch("/api/assignments", {
+      const res = await safeFetch("/api/assignments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ judgeId, teamId }),
@@ -260,7 +261,7 @@ export default function AdminPage() {
 
   async function removeAssignment(id: string) {
     try {
-      await fetch(`/api/assignments?id=${id}`, { method: "DELETE" });
+      await safeFetch(`/api/assignments?id=${id}`, { method: "DELETE" });
       toast.success("Assignment removed");
       fetchEvent();
     } catch {

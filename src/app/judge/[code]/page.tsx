@@ -25,6 +25,7 @@ import {
   Star,
 } from "lucide-react";
 import { EventData, Assignment, Team, Criterion } from "@/lib/types";
+import { safeFetch } from "@/lib/fetch";
 
 export default function JudgePortal() {
   const params = useParams();
@@ -41,7 +42,7 @@ export default function JudgePortal() {
 
   const fetchEvent = useCallback(async () => {
     try {
-      const res = await fetch("/api/event");
+      const res = await safeFetch("/api/event");
       if (res.ok) {
         const data = await res.json();
         setEvent(data);
@@ -98,7 +99,7 @@ export default function JudgePortal() {
       const scoreArray = Object.entries(scores).map(
         ([criterionId, value]) => ({ criterionId, value })
       );
-      const res = await fetch("/api/assignments", {
+      const res = await safeFetch("/api/assignments", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
