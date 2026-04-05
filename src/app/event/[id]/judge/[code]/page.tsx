@@ -58,12 +58,14 @@ export default function JudgePortal() {
       return () => { if (timerRef.current) clearInterval(timerRef.current); };
     } else {
       if (event?.judgingStartedAt) {
-        setTimerNow(Date.now());
+        // Use stored stop time if available, otherwise fall back to now
+        const stopTime = event.judgingStoppedAt ? new Date(event.judgingStoppedAt).getTime() : Date.now();
+        setTimerNow(stopTime);
       }
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
-  }, [event?.judgingStatus, event?.judgingStartedAt]);
+  }, [event?.judgingStatus, event?.judgingStartedAt, event?.judgingStoppedAt]);
 
   function formatTimer(ms: number): string {
     const totalSec = Math.max(0, Math.floor(ms / 1000));

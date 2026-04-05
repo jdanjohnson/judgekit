@@ -21,13 +21,23 @@ export default function MasterAdminPage() {
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPins, setShowPins] = useState<Record<string, boolean>>({});
+  const [masterSecret, setMasterSecret] = useState("");
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authError, setAuthError] = useState("");
 
-  const fetchEvents = useCallback(async () => {
+  const fetchEvents = useCallback(async (secret?: string) => {
+    const s = secret ?? sessionStorage.getItem("masterAdminSecret") ?? "";
     try {
-      const res = await fetch("/api/admin-list");
+      const res = await fetch("/api/admin-list", {
+        headers: s ? { "x-admin-secret": s } : {},
+      });
       if (res.ok) {
         const data = await res.json();
         setEvents(data);
+        setAuthenticated(true);
+      } else if (res.status === 401) {
+        setAuthenticated(false);
       } else {
         toast.error("Failed to load events");
       }
@@ -35,11 +45,23 @@ export default function MasterAdminPage() {
       toast.error("Connection error");
     }
     setLoading(false);
+    setAuthChecked(true);
   }, []);
 
   useEffect(() => {
     fetchEvents(); // eslint-disable-line react-hooks/set-state-in-effect -- initial data fetch
   }, [fetchEvents]);
+
+  function handleAuth() {
+    if (!masterSecret.trim()) {
+      setAuthError("Secret is required");
+      return;
+    }
+    setAuthError("");
+    sessionStorage.setItem("masterAdminSecret", masterSecret.trim());
+    setLoading(true);
+    fetchEvents(masterSecret.trim());
+  }
 
   function togglePin(id: string) {
     setShowPins((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -185,6 +207,47 @@ export default function MasterAdminPage() {
           width: "100%",
         }}
       >
+        {/* Auth gate — shown when MASTER_ADMIN_SECRET is set and user hasn't authenticated */}
+        {authChecked && !authenticated && !loading && (
+          <div style={{ maxWidth: 360, margin: "60px auto", textAlign: "center" }}>
+            <div className="font-serif" style={{ fontSize: 22, fontWeight: 200, marginBottom: 6 }}>
+              Master Admin
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted-c)", marginBottom: 20 }}>
+              Enter the admin secret to continue
+            </div>
+            <input
+              type="password"
+              style={{ ...inputStyle, marginBottom: 10 }}
+              placeholder="Admin secret..."
+              value={masterSecret}
+              onChange={(e) => setMasterSecret(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAuth(); }}
+            />
+            {authError && (
+              <div style={{ fontSize: 11, color: "#f07070", marginBottom: 8 }}>{authError}</div>
+            )}
+            <button
+              onClick={handleAuth}
+              style={{
+                background: "#bff066",
+                color: "#0c0c0d",
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 20px",
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: "pointer",
+                width: "100%",
+              }}
+            >
+              Enter
+            </button>
+          </div>
+        )}
+
+        {/* Main content — only shown when authenticated */}
+        {authenticated && <>
         {/* Header */}
         <div
           style={{
@@ -511,6 +574,7 @@ export default function MasterAdminPage() {
             ))}
           </div>
         )}
+        </>}
       </div>
     </div>
   );

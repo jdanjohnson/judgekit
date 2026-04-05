@@ -25,6 +25,10 @@ Assign judges to teams, score on configurable criteria, track progress in real-t
 - **Event Configuration** — Edit event name, description, and timer duration from the Settings tab after creation
 - **Start / Stop Judging** — Toggle judging on or off from the Overview tab; scoring is locked when judging is stopped
 - **Judging Timer** — Live elapsed or countdown timer visible to admins and judges; shows overtime in red when the configured duration is exceeded
+- **Master Admin Panel** — View all events with their PINs, team/judge counts, and status at `/admin`; protected by optional `MASTER_ADMIN_SECRET`
+- **Organizer Notes** — Leave notes for judges from the Settings tab; displayed as a card in the judge portal
+- **Editable Criteria** — Update criterion name, description, max score, and weight after creation via inline editing
+- **Weighted / Unweighted Scoring** — Toggle between weighted (by criterion weight) and unweighted (simple average) final score calculation
 - **Real-Time Progress** — Live progress bars and status pills across all views
 - **Export** — Download results as CSV or JSON from the admin sidebar
 - **Multi-Event** — Single deployment supports unlimited concurrent events
@@ -77,9 +81,10 @@ Click the **Deploy** button above, or:
 
 | Role  | URL Pattern                            |
 |-------|----------------------------------------|
-| Admin | `/event/{eventId}/admin`               |
-| Judge | `/event/{eventId}/judge/{accessCode}`  |
-| Team  | `/event/{eventId}/team/{tableNumber}`  |
+| Master Admin | `/admin`                               |
+| Admin        | `/event/{eventId}/admin`               |
+| Judge        | `/event/{eventId}/judge/{accessCode}`  |
+| Team         | `/event/{eventId}/team/{tableNumber}`  |
 
 Codes can also be entered on the landing page — a unified lookup resolves the correct route.
 
@@ -89,6 +94,7 @@ Codes can also be entered on the landing page — a unified lookup resolves the 
 |-----------------------------|----------|--------------------------|
 | `UPSTASH_REDIS_REST_URL`    | Yes      | Upstash Redis REST URL   |
 | `UPSTASH_REDIS_REST_TOKEN`  | Yes      | Upstash Redis REST token |
+| `MASTER_ADMIN_SECRET`       | No       | Secret to protect the `/admin` master panel. If not set, `/admin` is open to anyone. |
 
 Also accepts `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Vercel KV naming).
 

@@ -85,12 +85,14 @@ export default function AdminPage() {
       return () => { if (timerRef.current) clearInterval(timerRef.current); };
     } else {
       if (event?.judgingStartedAt) {
-        setTimerNow(Date.now());
+        // Use stored stop time if available, otherwise fall back to now
+        const stopTime = event.judgingStoppedAt ? new Date(event.judgingStoppedAt).getTime() : Date.now();
+        setTimerNow(stopTime);
       }
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
-  }, [event?.judgingStatus, event?.judgingStartedAt]);
+  }, [event?.judgingStatus, event?.judgingStartedAt, event?.judgingStoppedAt]);
 
   const eq = `eventId=${encodeURIComponent(eventId)}`;
 
@@ -431,6 +433,7 @@ export default function AdminPage() {
         body: JSON.stringify({
           judgingStatus: isActive ? "stopped" : "active",
           judgingStartedAt: isActive ? event.judgingStartedAt : new Date().toISOString(),
+          judgingStoppedAt: isActive ? new Date().toISOString() : null,
         }),
       });
       if (res.ok) {
@@ -452,6 +455,7 @@ export default function AdminPage() {
         body: JSON.stringify({
           judgingStatus: "idle",
           judgingStartedAt: null,
+          judgingStoppedAt: null,
         }),
       });
       if (res.ok) {

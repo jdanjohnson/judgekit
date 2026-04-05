@@ -52,6 +52,7 @@ export interface EventData {
   createdAt: string;
   judgingStatus: "idle" | "active" | "stopped";
   judgingStartedAt: string | null;
+  judgingStoppedAt: string | null;
   judgingDuration: number; // minutes, 0 = unlimited
   organizerNotes: string; // markdown/plain text notes shown to judges
   useWeightedScoring: boolean; // true = weighted, false = raw average

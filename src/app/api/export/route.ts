@@ -37,7 +37,7 @@ function exportCSV(event: EventData) {
     "Judge Name",
     "Status",
     ...event.criteria.map((c) => c.name),
-    event.useWeightedScoring ? "Weighted Total" : "Average Score",
+    (event.useWeightedScoring ?? true) ? "Weighted Total" : "Average Score",
     "Notes",
   ];
 
