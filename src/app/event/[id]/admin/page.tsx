@@ -427,14 +427,31 @@ export default function AdminPage() {
   async function toggleJudging() {
     if (!event) return;
     const isActive = (event.judgingStatus ?? "idle") === "active";
+    const wasStopped = (event.judgingStatus ?? "idle") === "stopped";
     const pin = sessionStorage.getItem("adminPin") ?? "";
+
+    // When resuming from stopped, offset the start time so the timer continues seamlessly
+    let newStartedAt: string | null;
+    if (isActive) {
+      // Stopping: keep existing start time
+      newStartedAt = event.judgingStartedAt ?? null;
+    } else if (wasStopped && event.judgingStartedAt && event.judgingStoppedAt) {
+      // Resuming: compute elapsed time and offset start so timer continues
+      const previousElapsed =
+        new Date(event.judgingStoppedAt).getTime() - new Date(event.judgingStartedAt).getTime();
+      newStartedAt = new Date(Date.now() - previousElapsed).toISOString();
+    } else {
+      // Fresh start from idle
+      newStartedAt = new Date().toISOString();
+    }
+
     try {
       const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...(pin ? { "x-admin-pin": pin } : {}) },
         body: JSON.stringify({
           judgingStatus: isActive ? "stopped" : "active",
-          judgingStartedAt: isActive ? event.judgingStartedAt : new Date().toISOString(),
+          judgingStartedAt: newStartedAt,
           judgingStoppedAt: isActive ? new Date().toISOString() : null,
         }),
       });
