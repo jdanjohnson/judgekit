@@ -336,6 +336,42 @@ export default function JudgePortal() {
           </div>
         )}
 
+        {/* Organizer notes card */}
+        {event.organizerNotes && (
+          <div
+            style={{
+              background: "var(--s1)",
+              border: "1px solid var(--border-c)",
+              borderRadius: 12,
+              padding: "14px 16px",
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 10,
+                color: "#f0c866",
+                letterSpacing: "0.07em",
+                textTransform: "uppercase",
+                marginBottom: 6,
+                fontWeight: 500,
+              }}
+            >
+              Notes from organizers
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--text-c)",
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {event.organizerNotes}
+            </div>
+          </div>
+        )}
+
         {/* Team list */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {myAssignments.length === 0 && (

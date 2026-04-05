@@ -32,6 +32,13 @@ export default function AdminPage() {
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [editDuration, setEditDuration] = useState("0");
+  const [editOrgNotes, setEditOrgNotes] = useState("");
+  const [editWeighted, setEditWeighted] = useState(true);
+  const [editingCriterionId, setEditingCriterionId] = useState<string | null>(null);
+  const [editCritName, setEditCritName] = useState("");
+  const [editCritMax, setEditCritMax] = useState("");
+  const [editCritWeight, setEditCritWeight] = useState("");
+  const [editCritDesc, setEditCritDesc] = useState("");
   const [timerNow, setTimerNow] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -65,6 +72,8 @@ export default function AdminPage() {
       setEditName(event.name); // eslint-disable-line react-hooks/set-state-in-effect -- sync form with loaded event
       setEditDesc(event.description);
       setEditDuration(String(event.judgingDuration ?? 0));
+      setEditOrgNotes(event.organizerNotes ?? "");
+      setEditWeighted(event.useWeightedScoring ?? true);
     }
   }, [event]);
 
@@ -364,6 +373,8 @@ export default function AdminPage() {
           name: editName,
           description: editDesc,
           judgingDuration: Number(editDuration) || 0,
+          organizerNotes: editOrgNotes,
+          useWeightedScoring: editWeighted,
         }),
       });
       if (res.ok) {
@@ -375,6 +386,39 @@ export default function AdminPage() {
     } catch {
       toast.error("Failed to save settings");
     }
+  }
+
+  async function saveCriterionEdit(id: string) {
+    try {
+      const res = await fetch(`/api/criteria?${eq}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          name: editCritName,
+          description: editCritDesc,
+          maxScore: Number(editCritMax) || 10,
+          weight: Number(editCritWeight) || 1,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Criterion updated");
+        setEditingCriterionId(null);
+        fetchEvent();
+      } else {
+        toast.error("Failed to update criterion");
+      }
+    } catch {
+      toast.error("Failed to update criterion");
+    }
+  }
+
+  function startEditCriterion(c: Criterion) {
+    setEditingCriterionId(c.id);
+    setEditCritName(c.name);
+    setEditCritMax(String(c.maxScore));
+    setEditCritWeight(String(c.weight));
+    setEditCritDesc(c.description || "");
   }
 
   async function toggleJudging() {
@@ -1551,37 +1595,126 @@ export default function AdminPage() {
                   <thead>
                     <tr>
                       <th style={thStyle}>Criterion</th>
+                      <th style={thStyle}>Description</th>
                       <th style={thStyle}>Max</th>
                       <th style={thStyle}>Weight</th>
-                      <th style={{ ...thStyle, width: 32 }} />
+                      <th style={{ ...thStyle, width: 72 }} />
                     </tr>
                   </thead>
                   <tbody>
-                    {event.criteria.map((c: Criterion) => (
-                      <tr key={c.id}>
-                        <td style={tdStyle}>{c.name}</td>
-                        <td style={tdStyle}>{c.maxScore}</td>
-                        <td style={tdStyle}>{c.weight}%</td>
-                        <td style={tdStyle}>
-                          <button
-                            onClick={() => deleteCriterion(c.id)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "var(--hint)",
-                              cursor: "pointer",
-                              fontSize: 13,
-                            }}
-                          >
-                            &times;
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {event.criteria.map((c: Criterion) =>
+                      editingCriterionId === c.id ? (
+                        <tr key={c.id}>
+                          <td style={tdStyle}>
+                            <input
+                              style={{ ...inputStyle, padding: "4px 6px", fontSize: 12 }}
+                              value={editCritName}
+                              onChange={(e) => setEditCritName(e.target.value)}
+                            />
+                          </td>
+                          <td style={tdStyle}>
+                            <input
+                              style={{ ...inputStyle, padding: "4px 6px", fontSize: 12 }}
+                              value={editCritDesc}
+                              onChange={(e) => setEditCritDesc(e.target.value)}
+                              placeholder="Optional description"
+                            />
+                          </td>
+                          <td style={tdStyle}>
+                            <input
+                              type="number"
+                              style={{ ...inputStyle, padding: "4px 6px", fontSize: 12, width: 56 }}
+                              value={editCritMax}
+                              onChange={(e) => setEditCritMax(e.target.value)}
+                            />
+                          </td>
+                          <td style={tdStyle}>
+                            <input
+                              type="number"
+                              style={{ ...inputStyle, padding: "4px 6px", fontSize: 12, width: 56 }}
+                              value={editCritWeight}
+                              onChange={(e) => setEditCritWeight(e.target.value)}
+                            />
+                          </td>
+                          <td style={tdStyle}>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <button
+                                onClick={() => saveCriterionEdit(c.id)}
+                                style={{
+                                  background: "#bff066",
+                                  border: "none",
+                                  borderRadius: 6,
+                                  color: "#0c0c0d",
+                                  padding: "3px 8px",
+                                  fontSize: 10,
+                                  cursor: "pointer",
+                                  fontWeight: 500,
+                                }}
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setEditingCriterionId(null)}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid var(--border-c)",
+                                  borderRadius: 6,
+                                  color: "var(--muted-c)",
+                                  padding: "3px 8px",
+                                  fontSize: 10,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr key={c.id}>
+                          <td style={tdStyle}>{c.name}</td>
+                          <td style={{ ...tdStyle, color: c.description ? "var(--text-c)" : "var(--hint)", fontSize: 11 }}>
+                            {c.description || "\u2014"}
+                          </td>
+                          <td style={tdStyle}>{c.maxScore}</td>
+                          <td style={tdStyle}>{c.weight}%</td>
+                          <td style={tdStyle}>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <button
+                                onClick={() => startEditCriterion(c)}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid var(--border-c)",
+                                  borderRadius: 6,
+                                  color: "var(--muted-c)",
+                                  padding: "3px 8px",
+                                  fontSize: 10,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => deleteCriterion(c.id)}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "var(--hint)",
+                                  cursor: "pointer",
+                                  fontSize: 13,
+                                }}
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ),
+                    )}
                     {event.criteria.length === 0 && (
                       <tr>
                         <td
-                          colSpan={4}
+                          colSpan={5}
                           style={{
                             ...tdStyle,
                             textAlign: "center",
@@ -2208,6 +2341,105 @@ export default function AdminPage() {
                   />
                   <div style={{ fontSize: 11, color: "var(--hint)", marginTop: 4 }}>
                     Set to 0 for unlimited (shows elapsed time only)
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                    marginTop: 24,
+                  }}
+                >
+                  Organizer notes for judges
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      color: "var(--hint)",
+                      marginBottom: 4,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Notes (visible to all judges)
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={editOrgNotes}
+                    onChange={(e) => setEditOrgNotes(e.target.value)}
+                    placeholder="Leave instructions, reminders, or announcements for judges here..."
+                    style={{
+                      ...inputStyle,
+                      resize: "vertical",
+                      fontSize: 12,
+                      lineHeight: 1.6,
+                    }}
+                  />
+                  <div style={{ fontSize: 11, color: "var(--hint)", marginTop: 4 }}>
+                    Judges will see this in a card below their scoring area
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                    marginTop: 24,
+                  }}
+                >
+                  Scoring
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <button
+                      onClick={() => setEditWeighted(!editWeighted)}
+                      style={{
+                        width: 40,
+                        height: 22,
+                        borderRadius: 12,
+                        border: "none",
+                        background: editWeighted ? "#bff066" : "var(--s2)",
+                        position: "relative",
+                        cursor: "pointer",
+                        transition: "background 0.2s",
+                      }}
+                    >
+                      <span
+                        style={{
+                          position: "absolute",
+                          top: 3,
+                          left: editWeighted ? 20 : 3,
+                          width: 16,
+                          height: 16,
+                          borderRadius: "50%",
+                          background: editWeighted ? "#0c0c0d" : "var(--muted-c)",
+                          transition: "left 0.2s",
+                        }}
+                      />
+                    </button>
+                    <span style={{ fontSize: 12, color: "var(--text-c)" }}>
+                      Use weighted scoring
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--hint)", marginTop: 6 }}>
+                    {editWeighted
+                      ? "Final scores are calculated using criterion weights (normalized to 100%)"
+                      : "Final scores are a simple average of all criteria (weights ignored)"}
                   </div>
                 </div>
 

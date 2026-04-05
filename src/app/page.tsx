@@ -234,22 +234,6 @@ export default function HomePage() {
               {loading ? "Checking..." : "Enter dashboard"}
             </button>
 
-            <div className="text-center" style={{ marginTop: 16 }}>
-              <button
-                style={{
-                  background: "none",
-                  border: "1px solid var(--border-c)",
-                  borderRadius: 8,
-                  color: "var(--muted-c)",
-                  padding: "9px 18px",
-                  fontSize: 13,
-                  cursor: "pointer",
-                }}
-                onClick={() => router.push("/create")}
-              >
-                Create new event &rarr;
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -392,23 +376,9 @@ export default function HomePage() {
                 cursor: "pointer",
                 fontSize: 10,
               }}
-              onClick={() => setShowPin(true)}
+              onClick={() => router.push("/admin")}
             >
-              type ADMIN
-            </button>
-            {" or "}
-            <button
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--muted-c)",
-                textDecoration: "underline",
-                cursor: "pointer",
-                fontSize: 10,
-              }}
-              onClick={() => router.push("/create")}
-            >
-              create new event
+              admin panel
             </button>
           </div>
         </div>

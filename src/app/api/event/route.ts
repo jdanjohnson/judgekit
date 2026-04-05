@@ -51,6 +51,8 @@ export async function POST(req: NextRequest) {
     judgingStatus: "idle",
     judgingStartedAt: null,
     judgingDuration: 0,
+    organizerNotes: "",
+    useWeightedScoring: true,
   };
 
   await setEvent(event);
@@ -70,7 +72,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, description, judgingStatus, judgingStartedAt, judgingDuration } = body;
+  const { name, description, judgingStatus, judgingStartedAt, judgingDuration, organizerNotes, useWeightedScoring } = body;
 
   const updated = await updateEvent(id, (event) => ({
     ...event,
@@ -79,6 +81,8 @@ export async function PUT(req: NextRequest) {
     judgingStatus: judgingStatus ?? event.judgingStatus ?? "idle",
     judgingStartedAt: judgingStartedAt !== undefined ? judgingStartedAt : (event.judgingStartedAt ?? null),
     judgingDuration: judgingDuration !== undefined ? judgingDuration : (event.judgingDuration ?? 0),
+    organizerNotes: organizerNotes !== undefined ? organizerNotes : (event.organizerNotes ?? ""),
+    useWeightedScoring: useWeightedScoring !== undefined ? useWeightedScoring : (event.useWeightedScoring ?? true),
   }));
 
   if (!updated) {

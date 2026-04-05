@@ -6,6 +6,12 @@ export interface Criterion {
   weight: number;
 }
 
+export interface OrganizerNote {
+  id: string;
+  content: string;
+  createdAt: string;
+}
+
 export interface Team {
   id: string;
   name: string;
@@ -47,4 +53,6 @@ export interface EventData {
   judgingStatus: "idle" | "active" | "stopped";
   judgingStartedAt: string | null;
   judgingDuration: number; // minutes, 0 = unlimited
+  organizerNotes: string; // markdown/plain text notes shown to judges
+  useWeightedScoring: boolean; // true = weighted, false = raw average
 }
