@@ -5,7 +5,7 @@ export async function GET(req: NextRequest) {
   // Require master admin secret if configured
   const masterSecret = process.env.MASTER_ADMIN_SECRET;
   const provided = req.headers.get("x-admin-secret");
-  const isAuthenticated = masterSecret ? provided === masterSecret : false;
+  const isAuthenticated = masterSecret ? provided === masterSecret : true;
 
   if (masterSecret && !isAuthenticated) {
     return NextResponse.json(
