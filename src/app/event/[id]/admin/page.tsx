@@ -27,6 +27,8 @@ export default function AdminPage() {
   const [bulkTeamText, setBulkTeamText] = useState("");
   const [bulkJudges, setBulkJudges] = useState(false);
   const [bulkJudgeText, setBulkJudgeText] = useState("");
+  const [assignJudgeId, setAssignJudgeId] = useState("");
+  const [assignTeamId, setAssignTeamId] = useState("");
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -252,6 +254,41 @@ export default function AdminPage() {
     }
   }
 
+  async function addManualAssignment() {
+    if (!assignJudgeId || !assignTeamId) {
+      toast.error("Select both a judge and a team");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/assignments?${eq}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ judgeId: assignJudgeId, teamId: assignTeamId }),
+      });
+      if (res.ok) {
+        toast.success("Assignment added");
+        setAssignJudgeId("");
+        setAssignTeamId("");
+        fetchEvent();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to assign");
+      }
+    } catch {
+      toast.error("Failed to add assignment");
+    }
+  }
+
+  async function deleteAssignment(id: string) {
+    try {
+      await fetch(`/api/assignments?${eq}&id=${id}`, { method: "DELETE" });
+      toast.success("Assignment removed");
+      fetchEvent();
+    } catch {
+      toast.error("Failed to remove assignment");
+    }
+  }
+
   async function autoAssign() {
     try {
       const res = await fetch(`/api/assignments?${eq}`, {
@@ -360,6 +397,11 @@ export default function AdminPage() {
           key: "criteria",
           label: "Criteria",
           badge: String(event.criteria.length),
+        },
+        {
+          key: "assign",
+          label: "Assignments",
+          badge: String(event.assignments.length),
         },
         { key: "share", label: "Share", badge: null },
       ],
@@ -1353,6 +1395,380 @@ export default function AdminPage() {
               </div>
             </>
           )}
+
+          {/* Assignments */}
+          {activeTab === "assign" && (() => {
+            const minJudges = Number(judgesPerTeam) || 3;
+            const teamsUnder = event.teams.filter((t) => {
+              const count = event.assignments.filter((a) => a.teamId === t.id).length;
+              return count < minJudges;
+            });
+            const judgesUnassigned = event.judges.filter(
+              (j) => !event.assignments.some((a) => a.judgeId === j.id),
+            );
+            return (
+              <>
+                <div
+                  style={{
+                    padding: "13px 16px",
+                    borderBottom: "1px solid var(--border-c)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <h2
+                    className="font-serif"
+                    style={{ fontSize: 17, fontWeight: 200 }}
+                  >
+                    Assignments
+                  </h2>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={autoAssign}
+                      style={{
+                        background: "#bff066",
+                        color: "#0c0c0d",
+                        border: "none",
+                        borderRadius: 8,
+                        padding: "5px 12px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Auto-assign
+                    </button>
+                    {event.assignments.length > 0 && (
+                      <button
+                        onClick={clearAssignments}
+                        style={{
+                          background: "none",
+                          border: "1px solid var(--border-c)",
+                          borderRadius: 8,
+                          padding: "5px 12px",
+                          fontSize: 11,
+                          color: "var(--muted-c)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div
+                  style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
+                >
+                  {/* Warnings */}
+                  {(teamsUnder.length > 0 || judgesUnassigned.length > 0) && (
+                    <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {teamsUnder.length > 0 && (
+                        <div
+                          style={{
+                            background: "rgba(240,200,102,.08)",
+                            border: "1px solid rgba(240,200,102,.22)",
+                            borderRadius: 8,
+                            padding: "10px 13px",
+                            fontSize: 12,
+                            color: "#f0c866",
+                          }}
+                        >
+                          <strong style={{ fontWeight: 600 }}>⚠ {teamsUnder.length} team{teamsUnder.length > 1 ? "s" : ""} below target</strong>
+                          <span style={{ color: "var(--muted-c)", marginLeft: 6 }}>
+                            (need {minJudges} judge{minJudges > 1 ? "s" : ""} each)
+                          </span>
+                          <div style={{ marginTop: 6, fontSize: 11, color: "var(--muted-c)", lineHeight: 1.7 }}>
+                            {teamsUnder.map((t) => {
+                              const count = event.assignments.filter((a) => a.teamId === t.id).length;
+                              return (
+                                <span key={t.id} style={{ display: "inline-block", marginRight: 10 }}>
+                                  <span style={{ color: "#f0c866" }}>{t.name}</span>{" "}
+                                  <span style={{ color: "var(--hint)" }}>({count}/{minJudges})</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {judgesUnassigned.length > 0 && (
+                        <div
+                          style={{
+                            background: "rgba(102,240,194,.06)",
+                            border: "1px solid rgba(102,240,194,.18)",
+                            borderRadius: 8,
+                            padding: "10px 13px",
+                            fontSize: 12,
+                            color: "#66f0c2",
+                          }}
+                        >
+                          <strong style={{ fontWeight: 600 }}>{judgesUnassigned.length} judge{judgesUnassigned.length > 1 ? "s" : ""} unassigned</strong>
+                          <div style={{ marginTop: 4, fontSize: 11, color: "var(--muted-c)" }}>
+                            {judgesUnassigned.map((j) => j.name).join(", ")}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Manual assign */}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      marginBottom: 16,
+                      alignItems: "end",
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Judge
+                      </label>
+                      <select
+                        value={assignJudgeId}
+                        onChange={(e) => setAssignJudgeId(e.target.value)}
+                        style={{ ...inputStyle, cursor: "pointer" }}
+                      >
+                        <option value="">Select judge...</option>
+                        {event.judges.map((j: Judge) => (
+                          <option key={j.id} value={j.id}>
+                            {j.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Team
+                      </label>
+                      <select
+                        value={assignTeamId}
+                        onChange={(e) => setAssignTeamId(e.target.value)}
+                        style={{ ...inputStyle, cursor: "pointer" }}
+                      >
+                        <option value="">Select team...</option>
+                        {event.teams.map((t: Team) => (
+                          <option key={t.id} value={t.id}>
+                            {t.tableNumber} — {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      onClick={addManualAssignment}
+                      style={{
+                        background: "#bff066",
+                        border: "none",
+                        borderRadius: 8,
+                        color: "#0c0c0d",
+                        padding: "8px 14px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      + Assign
+                    </button>
+                  </div>
+
+                  {/* Judges per team setting */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 16,
+                      padding: "8px 10px",
+                      background: "var(--s2)",
+                      borderRadius: 8,
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: "var(--muted-c)" }}>
+                      Target judges per team:
+                    </span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={judgesPerTeam}
+                      onChange={(e) => setJudgesPerTeam(e.target.value)}
+                      style={{
+                        width: 50,
+                        background: "var(--s3)",
+                        border: "1px solid var(--border-c)",
+                        borderRadius: 6,
+                        color: "var(--text-c)",
+                        padding: "4px 8px",
+                        fontSize: 12,
+                        outline: "none",
+                      }}
+                    />
+                  </div>
+
+                  {/* Assignment table by team */}
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "var(--hint)",
+                      letterSpacing: "0.07em",
+                      textTransform: "uppercase",
+                      marginBottom: 9,
+                    }}
+                  >
+                    All assignments
+                  </div>
+                  {event.teams.map((team: Team) => {
+                    const teamAssignments = event.assignments.filter(
+                      (a) => a.teamId === team.id,
+                    );
+                    const count = teamAssignments.length;
+                    const isUnder = count < minJudges;
+                    return (
+                      <div
+                        key={team.id}
+                        style={{
+                          marginBottom: 12,
+                          border: `1px solid ${isUnder ? "rgba(240,200,102,.3)" : "var(--border-c)"}`,
+                          borderRadius: 10,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "8px 12px",
+                            background: isUnder ? "rgba(240,200,102,.06)" : "var(--s2)",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 10, color: "var(--hint)" }}>
+                              {team.tableNumber}
+                            </span>
+                            <span style={{ fontSize: 12, color: "var(--text-c)" }}>
+                              {team.name}
+                            </span>
+                          </div>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              padding: "2px 8px",
+                              borderRadius: 100,
+                              background: isUnder
+                                ? "rgba(240,200,102,.15)"
+                                : count > 0
+                                  ? "rgba(191,240,102,.12)"
+                                  : "var(--s3)",
+                              color: isUnder
+                                ? "#f0c866"
+                                : count > 0
+                                  ? "#bff066"
+                                  : "var(--hint)",
+                            }}
+                          >
+                            {count}/{minJudges} judges
+                          </span>
+                        </div>
+                        {teamAssignments.length > 0 ? (
+                          <div style={{ padding: "0 12px 8px" }}>
+                            {teamAssignments.map((a) => {
+                              const judge = event.judges.find((j) => j.id === a.judgeId);
+                              return (
+                                <div
+                                  key={a.id}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    padding: "6px 0",
+                                    borderBottom: "1px solid rgba(42,42,47,.3)",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontSize: 12 }}>
+                                      {judge?.name || "Unknown"}
+                                    </span>
+                                    {a.status === "completed" ? (
+                                      <span className="pill pill-green" style={{ fontSize: 9 }}>
+                                        <span className="pill-dot" /> Done
+                                      </span>
+                                    ) : a.status === "in_progress" ? (
+                                      <span className="pill pill-amber" style={{ fontSize: 9 }}>
+                                        <span className="pill-dot" /> Scoring
+                                      </span>
+                                    ) : (
+                                      <span className="pill pill-gray" style={{ fontSize: 9 }}>
+                                        <span className="pill-dot" /> Pending
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => deleteAssignment(a.id)}
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      color: "var(--hint)",
+                                      cursor: "pointer",
+                                      fontSize: 13,
+                                      padding: "2px 6px",
+                                    }}
+                                  >
+                                    &times;
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              fontSize: 11,
+                              color: "var(--hint)",
+                              fontStyle: "italic",
+                            }}
+                          >
+                            No judges assigned
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {event.teams.length === 0 && (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        color: "var(--hint)",
+                        fontSize: 12,
+                        padding: 20,
+                      }}
+                    >
+                      Add teams and judges first
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
 
           {/* Share */}
           {activeTab === "share" && (
