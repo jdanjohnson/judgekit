@@ -4,16 +4,32 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+interface JudgeSummary {
+  id: string;
+  name: string;
+  accessCode: string;
+}
+
+interface TeamSummary {
+  id: string;
+  name: string;
+  tableNumber: string;
+  projectName: string;
+}
+
 interface EventSummary {
   id: string;
   name: string;
   description: string;
   adminPin: string;
+  eventDate: string;
   createdAt: string;
   teamCount: number;
   judgeCount: number;
   assignmentCount: number;
   judgingStatus: string;
+  judges: JudgeSummary[];
+  teams: TeamSummary[];
 }
 
 export default function MasterAdminPage() {
@@ -21,6 +37,9 @@ export default function MasterAdminPage() {
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPins, setShowPins] = useState<Record<string, boolean>>({});
+  const [expandedEvents, setExpandedEvents] = useState<Record<string, boolean>>({});
+  const [editingDate, setEditingDate] = useState<string | null>(null);
+  const [editDateValue, setEditDateValue] = useState("");
   const [masterSecret, setMasterSecret] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -67,12 +86,45 @@ export default function MasterAdminPage() {
     setShowPins((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
+  function toggleExpand(id: string) {
+    setExpandedEvents((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
   function openAdmin(event: EventSummary) {
     sessionStorage.setItem("adminPin", event.adminPin);
     router.push(`/event/${event.id}/admin`);
   }
 
+  function startEditDate(ev: EventSummary) {
+    setEditingDate(ev.id);
+    setEditDateValue(ev.eventDate ? ev.eventDate.slice(0, 10) : "");
+  }
+
+  async function saveDate(eventId: string) {
+    const s = sessionStorage.getItem("masterAdminSecret") ?? "";
+    try {
+      const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(s ? { "x-admin-secret": s } : {}),
+        },
+        body: JSON.stringify({ eventDate: editDateValue || "" }),
+      });
+      if (res.ok) {
+        toast.success("Date updated");
+        setEditingDate(null);
+        fetchEvents();
+      } else {
+        toast.error("Failed to update date");
+      }
+    } catch {
+      toast.error("Connection error");
+    }
+  }
+
   async function deleteEvent(id: string) {
+    if (!confirm("Are you sure you want to delete this event? This cannot be undone.")) return;
     try {
       const res = await fetch(`/api/event?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
@@ -86,6 +138,17 @@ export default function MasterAdminPage() {
     } catch {
       toast.error("Connection error");
     }
+  }
+
+  function getBaseUrl() {
+    return typeof window !== "undefined"
+      ? `${window.location.protocol}//${window.location.host}`
+      : "";
+  }
+
+  function copyToClipboard(text: string, label: string) {
+    navigator.clipboard.writeText(text);
+    toast.success(`Copied: ${label}`);
   }
 
   const statusColor: Record<string, string> = {
@@ -432,24 +495,31 @@ export default function MasterAdminPage() {
           </div>
         ) : (
           <div
-            style={{ display: "flex", flexDirection: "column", gap: 10 }}
+            style={{ display: "flex", flexDirection: "column", gap: 12 }}
           >
-            {events.map((ev) => (
+            {events.map((ev) => {
+              const isExpanded = expandedEvents[ev.id];
+              const base = getBaseUrl();
+              return (
               <div
                 key={ev.id}
                 style={{
                   background: "var(--s1)",
                   border: "1px solid var(--border-c)",
                   borderRadius: 12,
-                  padding: "14px 18px",
+                  overflow: "hidden",
                 }}
               >
+                {/* Event header row */}
                 <div
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "flex-start",
+                    padding: "14px 18px",
+                    cursor: "pointer",
                   }}
+                  onClick={() => toggleExpand(ev.id)}
                 >
                   <div style={{ flex: 1 }}>
                     <div
@@ -460,6 +530,7 @@ export default function MasterAdminPage() {
                         marginBottom: 4,
                       }}
                     >
+                      <span style={{ fontSize: 12, color: "var(--hint)", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", display: "inline-block" }}>&#9654;</span>
                       <span
                         className="font-serif"
                         style={{
@@ -484,49 +555,15 @@ export default function MasterAdminPage() {
                         {statusLabel[ev.judgingStatus] ?? "Idle"}
                       </span>
                     </div>
-                    {ev.description && (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: "var(--muted-c)",
-                          marginBottom: 6,
-                        }}
-                      >
-                        {ev.description}
-                      </div>
-                    )}
                     <div
                       style={{
                         display: "flex",
                         gap: 16,
                         fontSize: 11,
                         color: "var(--hint)",
+                        marginLeft: 22,
                       }}
                     >
-                      <span>
-                        ID:{" "}
-                        <span style={{ color: "var(--muted-c)" }}>
-                          {ev.id}
-                        </span>
-                      </span>
-                      <span>
-                        PIN:{" "}
-                        <button
-                          onClick={() => togglePin(ev.id)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: showPins[ev.id]
-                              ? "#bff066"
-                              : "var(--muted-c)",
-                            cursor: "pointer",
-                            fontSize: 11,
-                            fontFamily: "var(--font-mono, monospace)",
-                          }}
-                        >
-                          {showPins[ev.id] ? ev.adminPin : "····"}
-                        </button>
-                      </span>
                       <span>
                         {ev.teamCount} team{ev.teamCount !== 1 ? "s" : ""}
                       </span>
@@ -534,11 +571,11 @@ export default function MasterAdminPage() {
                         {ev.judgeCount} judge{ev.judgeCount !== 1 ? "s" : ""}
                       </span>
                       <span>
-                        {new Date(ev.createdAt).toLocaleDateString()}
+                        {ev.eventDate ? new Date(ev.eventDate + "T00:00:00").toLocaleDateString() : "No date set"}
                       </span>
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => openAdmin(ev)}
                       style={{
@@ -562,7 +599,7 @@ export default function MasterAdminPage() {
                         borderRadius: 8,
                         padding: "6px 12px",
                         fontSize: 11,
-                        color: "var(--hint)",
+                        color: "#f07070",
                         cursor: "pointer",
                       }}
                     >
@@ -570,8 +607,140 @@ export default function MasterAdminPage() {
                     </button>
                   </div>
                 </div>
+
+                {/* Expanded details */}
+                {isExpanded && (
+                  <div style={{ borderTop: "1px solid var(--border-c)", padding: "14px 18px" }}>
+                    {/* Event info grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 16 }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: "var(--hint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Event ID</div>
+                        <button onClick={() => copyToClipboard(ev.id, "Event ID")} style={{ background: "none", border: "none", color: "var(--text-c)", fontSize: 13, fontFamily: "var(--font-mono, monospace)", cursor: "pointer", padding: 0 }} title="Click to copy">
+                          {ev.id}
+                        </button>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: "var(--hint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Admin PIN</div>
+                        <button
+                          onClick={() => togglePin(ev.id)}
+                          style={{ background: "none", border: "none", color: showPins[ev.id] ? "#bff066" : "var(--text-c)", fontSize: 13, fontFamily: "var(--font-mono, monospace)", cursor: "pointer", padding: 0 }}
+                        >
+                          {showPins[ev.id] ? ev.adminPin : "····"}
+                        </button>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: "var(--hint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Event Date</div>
+                        {editingDate === ev.id ? (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <input
+                              type="date"
+                              value={editDateValue}
+                              onChange={(e) => setEditDateValue(e.target.value)}
+                              style={{ ...inputStyle, width: 150, padding: "4px 8px", fontSize: 12 }}
+                            />
+                            <button onClick={() => saveDate(ev.id)} style={{ background: "#bff066", color: "#0c0c0d", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>Save</button>
+                            <button onClick={() => setEditingDate(null)} style={{ background: "none", border: "1px solid var(--border-c)", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: "var(--hint)", cursor: "pointer" }}>Cancel</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => startEditDate(ev)} style={{ background: "none", border: "none", color: "var(--text-c)", fontSize: 13, cursor: "pointer", padding: 0 }} title="Click to edit">
+                            {ev.eventDate ? new Date(ev.eventDate + "T00:00:00").toLocaleDateString() : "—"}
+                            <span style={{ fontSize: 10, color: "var(--hint)", marginLeft: 6 }}>edit</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: "var(--hint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Admin URL</div>
+                        <button onClick={() => copyToClipboard(`${base}/event/${ev.id}/admin`, "Admin URL")} style={{ background: "none", border: "none", color: "#66f0c2", fontSize: 11, fontFamily: "var(--font-mono, monospace)", cursor: "pointer", padding: 0, wordBreak: "break-all", textAlign: "left" }}>
+                          {base}/event/{ev.id}/admin
+                        </button>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: "var(--hint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Created</div>
+                        <span style={{ fontSize: 13, color: "var(--muted-c)" }}>{new Date(ev.createdAt).toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    {/* Judges table */}
+                    {ev.judges.length > 0 && (
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize: 10, color: "var(--hint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Judges &amp; Access Codes</div>
+                        <div style={{ background: "var(--s2)", borderRadius: 8, overflow: "hidden" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                            <thead>
+                              <tr style={{ borderBottom: "1px solid var(--border-c)" }}>
+                                <th style={{ textAlign: "left", padding: "6px 10px", color: "var(--hint)", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>Name</th>
+                                <th style={{ textAlign: "left", padding: "6px 10px", color: "var(--hint)", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>Access Code</th>
+                                <th style={{ textAlign: "left", padding: "6px 10px", color: "var(--hint)", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>Judge URL</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ev.judges.map((j) => (
+                                <tr key={j.id} style={{ borderBottom: "1px solid var(--border-c)" }}>
+                                  <td style={{ padding: "6px 10px", color: "var(--text-c)" }}>{j.name}</td>
+                                  <td style={{ padding: "6px 10px" }}>
+                                    <button onClick={() => copyToClipboard(j.accessCode, `Code for ${j.name}`)} style={{ background: "none", border: "none", color: "#bff066", fontFamily: "var(--font-mono, monospace)", fontSize: 12, cursor: "pointer", padding: 0 }}>
+                                      {j.accessCode}
+                                    </button>
+                                  </td>
+                                  <td style={{ padding: "6px 10px" }}>
+                                    <button onClick={() => copyToClipboard(`${base}/event/${ev.id}/judge/${j.accessCode}`, `URL for ${j.name}`)} style={{ background: "none", border: "none", color: "#66f0c2", fontFamily: "var(--font-mono, monospace)", fontSize: 11, cursor: "pointer", padding: 0 }}>
+                                      copy link
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Teams table */}
+                    {ev.teams.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 10, color: "var(--hint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Teams &amp; Table Numbers</div>
+                        <div style={{ background: "var(--s2)", borderRadius: 8, overflow: "hidden" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                            <thead>
+                              <tr style={{ borderBottom: "1px solid var(--border-c)" }}>
+                                <th style={{ textAlign: "left", padding: "6px 10px", color: "var(--hint)", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>Team</th>
+                                <th style={{ textAlign: "left", padding: "6px 10px", color: "var(--hint)", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>Table #</th>
+                                <th style={{ textAlign: "left", padding: "6px 10px", color: "var(--hint)", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>Project</th>
+                                <th style={{ textAlign: "left", padding: "6px 10px", color: "var(--hint)", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>Team URL</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ev.teams.map((t) => (
+                                <tr key={t.id} style={{ borderBottom: "1px solid var(--border-c)" }}>
+                                  <td style={{ padding: "6px 10px", color: "var(--text-c)" }}>{t.name}</td>
+                                  <td style={{ padding: "6px 10px", fontFamily: "var(--font-mono, monospace)", color: "#bff066" }}>{t.tableNumber}</td>
+                                  <td style={{ padding: "6px 10px", color: "var(--muted-c)" }}>{t.projectName || "—"}</td>
+                                  <td style={{ padding: "6px 10px" }}>
+                                    <button onClick={() => copyToClipboard(`${base}/event/${ev.id}/team/${t.tableNumber}`, `URL for ${t.name}`)} style={{ background: "none", border: "none", color: "#66f0c2", fontFamily: "var(--font-mono, monospace)", fontSize: 11, cursor: "pointer", padding: 0 }}>
+                                      copy link
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {ev.judges.length === 0 && ev.teams.length === 0 && (
+                      <div style={{ fontSize: 12, color: "var(--muted-c)", fontStyle: "italic" }}>
+                        No judges or teams added yet. Open the event admin to get started.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
         </>}

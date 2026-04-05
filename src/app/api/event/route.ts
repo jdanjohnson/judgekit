@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
     teams: [],
     judges: [],
     assignments: [],
+    eventDate: "",
     createdAt: new Date().toISOString(),
     judgingStatus: "idle",
     judgingStartedAt: null,
@@ -73,12 +74,13 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, description, judgingStatus, judgingStartedAt, judgingStoppedAt, judgingDuration, organizerNotes, useWeightedScoring } = body;
+  const { name, description, eventDate, judgingStatus, judgingStartedAt, judgingStoppedAt, judgingDuration, organizerNotes, useWeightedScoring } = body;
 
   const updated = await updateEvent(id, (event) => ({
     ...event,
     name: name ?? event.name,
     description: description ?? event.description,
+    eventDate: eventDate !== undefined ? eventDate : (event.eventDate ?? ""),
     judgingStatus: judgingStatus ?? event.judgingStatus ?? "idle",
     judgingStartedAt: judgingStartedAt !== undefined ? judgingStartedAt : (event.judgingStartedAt ?? null),
     judgingStoppedAt: judgingStoppedAt !== undefined ? judgingStoppedAt : (event.judgingStoppedAt ?? null),

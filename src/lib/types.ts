@@ -6,12 +6,6 @@ export interface Criterion {
   weight: number;
 }
 
-export interface OrganizerNote {
-  id: string;
-  content: string;
-  createdAt: string;
-}
-
 export interface Team {
   id: string;
   name: string;
@@ -49,6 +43,7 @@ export interface EventData {
   teams: Team[];
   judges: Judge[];
   assignments: Assignment[];
+  eventDate: string; // ISO date string for the event date (editable by master admin)
   createdAt: string;
   judgingStatus: "idle" | "active" | "stopped";
   judgingStartedAt: string | null;
