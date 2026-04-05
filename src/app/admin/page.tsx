@@ -128,9 +128,13 @@ export default function MasterAdminPage() {
     if (!confirm("Are you sure you want to delete this event? This cannot be undone.")) return;
     const s = sessionStorage.getItem("masterAdminSecret") ?? "";
     try {
+      const pin = events.find((e) => e.id === id)?.adminPin ?? "";
       const res = await fetch(`/api/event?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
-        headers: s ? { "x-admin-secret": s } : {},
+        headers: {
+          ...(s ? { "x-admin-secret": s } : {}),
+          ...(pin ? { "x-admin-pin": pin } : {}),
+        },
       });
       if (res.ok) {
         toast.success("Event deleted");
