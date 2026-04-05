@@ -39,7 +39,7 @@ export default function AdminPage() {
   const [editCritMax, setEditCritMax] = useState("");
   const [editCritWeight, setEditCritWeight] = useState("");
   const [editCritDesc, setEditCritDesc] = useState("");
-  const [timerNow, setTimerNow] = useState(0);
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchEvent = useCallback(async () => {
@@ -367,10 +367,11 @@ export default function AdminPage() {
   }
 
   async function updateEventSettings() {
+    const pin = sessionStorage.getItem("adminPin") ?? "";
     try {
       const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(pin ? { "x-admin-pin": pin } : {}) },
         body: JSON.stringify({
           name: editName,
           description: editDesc,
@@ -426,10 +427,11 @@ export default function AdminPage() {
   async function toggleJudging() {
     if (!event) return;
     const isActive = (event.judgingStatus ?? "idle") === "active";
+    const pin = sessionStorage.getItem("adminPin") ?? "";
     try {
       const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(pin ? { "x-admin-pin": pin } : {}) },
         body: JSON.stringify({
           judgingStatus: isActive ? "stopped" : "active",
           judgingStartedAt: isActive ? event.judgingStartedAt : new Date().toISOString(),
@@ -448,10 +450,11 @@ export default function AdminPage() {
   }
 
   async function resetJudging() {
+    const pin = sessionStorage.getItem("adminPin") ?? "";
     try {
       const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(pin ? { "x-admin-pin": pin } : {}) },
         body: JSON.stringify({
           judgingStatus: "idle",
           judgingStartedAt: null,

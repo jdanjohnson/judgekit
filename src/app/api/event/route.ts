@@ -73,6 +73,23 @@ export async function PUT(req: NextRequest) {
     );
   }
 
+  // Require either the event's admin PIN or the master admin secret
+  const event = await getEvent(id);
+  if (!event) {
+    return NextResponse.json({ error: "No event found" }, { status: 404 });
+  }
+
+  const providedPin = req.headers.get("x-admin-pin");
+  const providedSecret = req.headers.get("x-admin-secret");
+  const masterSecret = process.env.MASTER_ADMIN_SECRET;
+
+  const pinMatch = providedPin === event.adminPin;
+  const masterMatch = masterSecret && providedSecret === masterSecret;
+
+  if (!pinMatch && !masterMatch) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = await req.json();
   const { name, description, eventDate, judgingStatus, judgingStartedAt, judgingStoppedAt, judgingDuration, organizerNotes, useWeightedScoring } = body;
 

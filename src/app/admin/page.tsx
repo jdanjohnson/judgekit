@@ -45,7 +45,7 @@ export default function MasterAdminPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authError, setAuthError] = useState("");
 
-  const fetchEvents = useCallback(async (secret?: string) => {
+  const fetchEvents = useCallback(async (secret?: string, opts?: { isExplicitAuth?: boolean }) => {
     const s = secret ?? sessionStorage.getItem("masterAdminSecret") ?? "";
     try {
       const res = await fetch("/api/admin-list", {
@@ -57,7 +57,10 @@ export default function MasterAdminPage() {
         setAuthenticated(true);
       } else if (res.status === 401) {
         setAuthenticated(false);
-        setAuthError("Invalid secret");
+        if (opts?.isExplicitAuth) {
+          setAuthError("Invalid secret");
+          sessionStorage.removeItem("masterAdminSecret");
+        }
       } else {
         toast.error("Failed to load events");
       }
@@ -80,7 +83,7 @@ export default function MasterAdminPage() {
     setAuthError("");
     sessionStorage.setItem("masterAdminSecret", masterSecret.trim());
     setLoading(true);
-    fetchEvents(masterSecret.trim());
+    fetchEvents(masterSecret.trim(), { isExplicitAuth: true });
   }
 
   function togglePin(id: string) {
@@ -91,9 +94,25 @@ export default function MasterAdminPage() {
     setExpandedEvents((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
-  function openAdmin(event: EventSummary) {
-    sessionStorage.setItem("adminPin", event.adminPin);
-    router.push(`/event/${event.id}/admin`);
+  async function openAdmin(ev: EventSummary) {
+    try {
+      const res = await fetch(
+        `/api/admin?eventId=${encodeURIComponent(ev.id)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pin: ev.adminPin }),
+        }
+      );
+      if (res.ok) {
+        sessionStorage.setItem("adminPin", ev.adminPin);
+        router.push(`/event/${ev.id}/admin`);
+      } else {
+        toast.error("Failed to verify event PIN");
+      }
+    } catch {
+      toast.error("Connection error");
+    }
   }
 
   function startEditDate(ev: EventSummary) {
@@ -103,12 +122,14 @@ export default function MasterAdminPage() {
 
   async function saveDate(eventId: string) {
     const s = sessionStorage.getItem("masterAdminSecret") ?? "";
+    const pin = events.find((e) => e.id === eventId)?.adminPin ?? "";
     try {
       const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           ...(s ? { "x-admin-secret": s } : {}),
+          ...(pin ? { "x-admin-pin": pin } : {}),
         },
         body: JSON.stringify({ eventDate: editDateValue || "" }),
       });
@@ -128,9 +149,13 @@ export default function MasterAdminPage() {
     if (!confirm("Are you sure you want to delete this event? This cannot be undone.")) return;
     const s = sessionStorage.getItem("masterAdminSecret") ?? "";
     try {
+      const pin = events.find((e) => e.id === id)?.adminPin ?? "";
       const res = await fetch(`/api/event?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
-        headers: s ? { "x-admin-secret": s } : {},
+        headers: {
+          ...(s ? { "x-admin-secret": s } : {}),
+          ...(pin ? { "x-admin-pin": pin } : {}),
+        },
       });
       if (res.ok) {
         toast.success("Event deleted");
