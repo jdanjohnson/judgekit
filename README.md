@@ -22,6 +22,9 @@ Assign judges to teams, score on configurable criteria, track progress in real-t
 - **Auto-Assign** — Evenly distribute judges across teams with one click
 - **Assignment Management** — View all judge↔team assignments grouped by team, manually add or remove individual assignments, configurable target judges-per-team
 - **Validation Warnings** — Flags teams below the target judge count and lists unassigned judges so nothing slips through the cracks
+- **Event Configuration** — Edit event name, description, and timer duration from the Settings tab after creation
+- **Start / Stop Judging** — Toggle judging on or off from the Overview tab; scoring is locked when judging is stopped
+- **Judging Timer** — Live elapsed or countdown timer visible to admins and judges; shows overtime in red when the configured duration is exceeded
 - **Real-Time Progress** — Live progress bars and status pills across all views
 - **Export** — Download results as CSV or JSON from the admin sidebar
 - **Multi-Event** — Single deployment supports unlimited concurrent events

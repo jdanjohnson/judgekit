@@ -44,4 +44,7 @@ export interface EventData {
   judges: Judge[];
   assignments: Assignment[];
   createdAt: string;
+  judgingStatus: "idle" | "active" | "stopped";
+  judgingStartedAt: string | null;
+  judgingDuration: number; // minutes, 0 = unlimited
 }

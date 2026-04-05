@@ -48,6 +48,9 @@ export async function POST(req: NextRequest) {
     judges: [],
     assignments: [],
     createdAt: new Date().toISOString(),
+    judgingStatus: "idle",
+    judgingStartedAt: null,
+    judgingDuration: 0,
   };
 
   await setEvent(event);
@@ -67,12 +70,15 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, description } = body;
+  const { name, description, judgingStatus, judgingStartedAt, judgingDuration } = body;
 
   const updated = await updateEvent(id, (event) => ({
     ...event,
     name: name ?? event.name,
     description: description ?? event.description,
+    judgingStatus: judgingStatus ?? event.judgingStatus ?? "idle",
+    judgingStartedAt: judgingStartedAt !== undefined ? judgingStartedAt : (event.judgingStartedAt ?? null),
+    judgingDuration: judgingDuration !== undefined ? judgingDuration : (event.judgingDuration ?? 0),
   }));
 
   if (!updated) {

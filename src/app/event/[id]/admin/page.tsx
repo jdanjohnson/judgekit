@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { EventData, Team, Judge, Criterion } from "@/lib/types";
@@ -29,6 +29,11 @@ export default function AdminPage() {
   const [bulkJudgeText, setBulkJudgeText] = useState("");
   const [assignJudgeId, setAssignJudgeId] = useState("");
   const [assignTeamId, setAssignTeamId] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editDuration, setEditDuration] = useState("0");
+  const [timerNow, setTimerNow] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -51,9 +56,32 @@ export default function AdminPage() {
       router.push("/");
       return;
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch
-    fetchEvent();
+    fetchEvent(); // eslint-disable-line react-hooks/set-state-in-effect -- initial data fetch
   }, [router, fetchEvent]);
+
+  // Sync edit form when event loads or changes
+  useEffect(() => {
+    if (event) {
+      setEditName(event.name); // eslint-disable-line react-hooks/set-state-in-effect -- sync form with loaded event
+      setEditDesc(event.description);
+      setEditDuration(String(event.judgingDuration ?? 0));
+    }
+  }, [event]);
+
+  // Timer tick
+  useEffect(() => {
+    if (event?.judgingStatus === "active") {
+      setTimerNow(Date.now()); // eslint-disable-line react-hooks/set-state-in-effect -- sync timer on status change
+      timerRef.current = setInterval(() => setTimerNow(Date.now()), 1000);
+      return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    } else {
+      if (event?.judgingStartedAt) {
+        setTimerNow(Date.now());
+      }
+      if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+  }, [event?.judgingStatus, event?.judgingStartedAt]);
 
   const eq = `eventId=${encodeURIComponent(eventId)}`;
 
@@ -327,6 +355,82 @@ export default function AdminPage() {
     }
   }
 
+  async function updateEventSettings() {
+    try {
+      const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName,
+          description: editDesc,
+          judgingDuration: Number(editDuration) || 0,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Settings saved");
+        fetchEvent();
+      } else {
+        toast.error("Failed to save settings");
+      }
+    } catch {
+      toast.error("Failed to save settings");
+    }
+  }
+
+  async function toggleJudging() {
+    if (!event) return;
+    const isActive = (event.judgingStatus ?? "idle") === "active";
+    try {
+      const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          judgingStatus: isActive ? "stopped" : "active",
+          judgingStartedAt: isActive ? event.judgingStartedAt : new Date().toISOString(),
+        }),
+      });
+      if (res.ok) {
+        toast.success(isActive ? "Judging stopped" : "Judging started!");
+        fetchEvent();
+      } else {
+        toast.error("Failed to update judging status");
+      }
+    } catch {
+      toast.error("Failed to update judging status");
+    }
+  }
+
+  async function resetJudging() {
+    try {
+      const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          judgingStatus: "idle",
+          judgingStartedAt: null,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Timer reset");
+        fetchEvent();
+      } else {
+        toast.error("Failed to reset");
+      }
+    } catch {
+      toast.error("Failed to reset");
+    }
+  }
+
+  function formatTimer(ms: number): string {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
   function copyToClipboard(text: string, label: string) {
     navigator.clipboard.writeText(text);
     toast.success(`Copied: ${label}`);
@@ -404,6 +508,7 @@ export default function AdminPage() {
           badge: String(event.assignments.length),
         },
         { key: "share", label: "Share", badge: null },
+        { key: "settings", label: "Settings", badge: null },
       ],
     },
     {
@@ -623,9 +728,19 @@ export default function AdminPage() {
                 >
                   Overview
                 </h2>
-                <span className="pill pill-green">
-                  <span className="pill-dot" /> Active
-                </span>
+                {(event.judgingStatus ?? "idle") === "active" ? (
+                  <span className="pill pill-green">
+                    <span className="pill-dot" /> Judging
+                  </span>
+                ) : (event.judgingStatus ?? "idle") === "stopped" ? (
+                  <span className="pill pill-amber">
+                    <span className="pill-dot" /> Stopped
+                  </span>
+                ) : (
+                  <span className="pill pill-gray">
+                    <span className="pill-dot" /> Idle
+                  </span>
+                )}
               </div>
               <div
                 style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
@@ -668,6 +783,93 @@ export default function AdminPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+
+                {/* Judging controls & timer */}
+                <div
+                  style={{
+                    background: "var(--s2)",
+                    borderRadius: 8,
+                    padding: "14px 16px",
+                    marginBottom: 18,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      marginBottom: event.judgingStartedAt ? 12 : 0,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <button
+                        onClick={toggleJudging}
+                        style={{
+                          background: (event.judgingStatus ?? "idle") === "active" ? "#f07070" : "#bff066",
+                          color: "#0c0c0d",
+                          border: "none",
+                          borderRadius: 8,
+                          padding: "7px 16px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {(event.judgingStatus ?? "idle") === "active" ? "Stop Judging" : "Start Judging"}
+                      </button>
+                      {(event.judgingStatus ?? "idle") !== "idle" && (
+                        <button
+                          onClick={resetJudging}
+                          style={{
+                            background: "none",
+                            border: "1px solid var(--border-c)",
+                            borderRadius: 8,
+                            padding: "7px 12px",
+                            fontSize: 11,
+                            color: "var(--muted-c)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                    {(event.judgingDuration ?? 0) > 0 && (
+                      <span style={{ fontSize: 11, color: "var(--muted-c)" }}>
+                        Duration: {event.judgingDuration}m
+                      </span>
+                    )}
+                  </div>
+                  {event.judgingStartedAt && (() => {
+                    const elapsed = timerNow - new Date(event.judgingStartedAt).getTime();
+                    const duration = (event.judgingDuration ?? 0) * 60 * 1000;
+                    const hasLimit = duration > 0;
+                    const remaining = hasLimit ? duration - elapsed : 0;
+                    const isOver = hasLimit && remaining <= 0;
+                    const displayMs = hasLimit ? Math.abs(remaining) : elapsed;
+                    return (
+                      <div style={{ textAlign: "center" }}>
+                        <div
+                          className="font-serif"
+                          style={{
+                            fontSize: 40,
+                            fontWeight: 200,
+                            color: isOver ? "#f07070" : (event.judgingStatus ?? "idle") === "active" ? "#bff066" : "var(--muted-c)",
+                            lineHeight: 1,
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {isOver ? "-" : ""}{formatTimer(displayMs)}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--muted-c)", marginTop: 4 }}>
+                          {(event.judgingStatus ?? "idle") === "active"
+                            ? (hasLimit ? (isOver ? "overtime" : "remaining") : "elapsed")
+                            : (event.judgingStatus ?? "idle") === "stopped" ? "stopped" : ""}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Auto-assign controls */}
@@ -1895,6 +2097,163 @@ export default function AdminPage() {
                     </button>
                   </div>
                 ))}
+              </div>
+            </>
+          )}
+
+          {/* Settings */}
+          {activeTab === "settings" && (
+            <>
+              <div
+                style={{
+                  padding: "13px 16px",
+                  borderBottom: "1px solid var(--border-c)",
+                }}
+              >
+                <h2
+                  className="font-serif"
+                  style={{ fontSize: 17, fontWeight: 200 }}
+                >
+                  Settings
+                </h2>
+              </div>
+              <div
+                style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                  }}
+                >
+                  Event details
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      color: "var(--hint)",
+                      marginBottom: 4,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Event name
+                  </label>
+                  <input
+                    style={inputStyle}
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                  />
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      color: "var(--hint)",
+                      marginBottom: 4,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Description
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    style={{
+                      ...inputStyle,
+                      resize: "none",
+                    }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                    marginTop: 24,
+                  }}
+                >
+                  Judging timer
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      color: "var(--hint)",
+                      marginBottom: 4,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Duration (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    style={{ ...inputStyle, width: 120 }}
+                    value={editDuration}
+                    onChange={(e) => setEditDuration(e.target.value)}
+                  />
+                  <div style={{ fontSize: 11, color: "var(--hint)", marginTop: 4 }}>
+                    Set to 0 for unlimited (shows elapsed time only)
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                    marginTop: 24,
+                  }}
+                >
+                  Info
+                </div>
+                <div
+                  style={{
+                    background: "var(--s2)",
+                    borderRadius: 8,
+                    padding: "10px 13px",
+                    fontSize: 12,
+                    color: "var(--muted-c)",
+                    marginBottom: 20,
+                  }}
+                >
+                  <div>Event ID: <span className="code-chip">{eventId}</span></div>
+                  <div style={{ marginTop: 6 }}>
+                    Created: {new Date(event.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+
+                <button
+                  onClick={updateEventSettings}
+                  style={{
+                    background: "#bff066",
+                    color: "#0c0c0d",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "9px 20px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Save settings
+                </button>
               </div>
             </>
           )}
