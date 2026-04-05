@@ -147,6 +147,18 @@ export async function PUT(req: NextRequest) {
     );
   }
 
+  // Check if judging is stopped — reject score submissions
+  const event = await getEvent(eventId);
+  if (!event) {
+    return NextResponse.json({ error: "No event found" }, { status: 404 });
+  }
+  if (event.judgingStatus === "stopped") {
+    return NextResponse.json(
+      { error: "Judging is currently stopped" },
+      { status: 403 }
+    );
+  }
+
   const body = await req.json();
   const { id, scores, notes, status } = body;
 

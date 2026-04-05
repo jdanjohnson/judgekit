@@ -57,6 +57,7 @@ export default function MasterAdminPage() {
         setAuthenticated(true);
       } else if (res.status === 401) {
         setAuthenticated(false);
+        setAuthError("Invalid secret");
       } else {
         toast.error("Failed to load events");
       }
@@ -125,9 +126,11 @@ export default function MasterAdminPage() {
 
   async function deleteEvent(id: string) {
     if (!confirm("Are you sure you want to delete this event? This cannot be undone.")) return;
+    const s = sessionStorage.getItem("masterAdminSecret") ?? "";
     try {
       const res = await fetch(`/api/event?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
+        headers: s ? { "x-admin-secret": s } : {},
       });
       if (res.ok) {
         toast.success("Event deleted");
