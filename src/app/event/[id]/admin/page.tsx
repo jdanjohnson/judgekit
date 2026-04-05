@@ -39,7 +39,7 @@ export default function AdminPage() {
   const [editCritMax, setEditCritMax] = useState("");
   const [editCritWeight, setEditCritWeight] = useState("");
   const [editCritDesc, setEditCritDesc] = useState("");
-  const [timerNow, setTimerNow] = useState(0);
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchEvent = useCallback(async () => {
