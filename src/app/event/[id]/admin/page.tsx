@@ -23,6 +23,10 @@ export default function AdminPage() {
   const [critMax, setCritMax] = useState("10");
   const [critWeight, setCritWeight] = useState("1");
   const [judgesPerTeam, setJudgesPerTeam] = useState("3");
+  const [bulkTeams, setBulkTeams] = useState(false);
+  const [bulkTeamText, setBulkTeamText] = useState("");
+  const [bulkJudges, setBulkJudges] = useState(false);
+  const [bulkJudgeText, setBulkJudgeText] = useState("");
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -83,6 +87,49 @@ export default function AdminPage() {
     }
   }
 
+  async function bulkAddTeams() {
+    const lines = bulkTeamText
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) {
+      toast.error("Paste at least one line");
+      return;
+    }
+    let added = 0;
+    let errors = 0;
+    for (const line of lines) {
+      const parts = line.split(",").map((p) => p.trim());
+      const name = parts[0] || "";
+      const tableNumber = parts[1] || "";
+      const projectName = parts[2] || "";
+      if (!name || !tableNumber) {
+        errors++;
+        continue;
+      }
+      try {
+        const res = await fetch(`/api/teams?${eq}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, tableNumber, projectName, description: "" }),
+        });
+        if (res.ok) added++;
+        else errors++;
+      } catch {
+        errors++;
+      }
+    }
+    if (added > 0) {
+      toast.success(`Added ${added} team${added > 1 ? "s" : ""}`);
+      setBulkTeamText("");
+      setBulkTeams(false);
+      fetchEvent();
+    }
+    if (errors > 0) {
+      toast.error(`${errors} line${errors > 1 ? "s" : ""} failed (need: name, table #)`);
+    }
+  }
+
   async function deleteTeam(id: string) {
     try {
       await fetch(`/api/teams?${eq}&id=${id}`, { method: "DELETE" });
@@ -115,6 +162,41 @@ export default function AdminPage() {
       }
     } catch {
       toast.error("Failed to add judge");
+    }
+  }
+
+  async function bulkAddJudges() {
+    const names = bulkJudgeText
+      .split(/[\n,]/)
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (names.length === 0) {
+      toast.error("Enter at least one name");
+      return;
+    }
+    let added = 0;
+    let errors = 0;
+    for (const name of names) {
+      try {
+        const res = await fetch(`/api/judges?${eq}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        if (res.ok) added++;
+        else errors++;
+      } catch {
+        errors++;
+      }
+    }
+    if (added > 0) {
+      toast.success(`Added ${added} judge${added > 1 ? "s" : ""}`);
+      setBulkJudgeText("");
+      setBulkJudges(false);
+      fetchEvent();
+    }
+    if (errors > 0) {
+      toast.error(`${errors} name${errors > 1 ? "s" : ""} failed`);
     }
   }
 
@@ -705,93 +787,145 @@ export default function AdminPage() {
               <div
                 style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
               >
-                <form
-                  onSubmit={addTeam}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 80px 1fr auto",
-                    gap: 8,
-                    marginBottom: 16,
-                    alignItems: "end",
-                  }}
-                >
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: 10,
-                        color: "var(--hint)",
-                        marginBottom: 4,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                      }}
-                    >
-                      Name
-                    </label>
-                    <input
-                      style={inputStyle}
-                      placeholder="Team name"
-                      value={teamName}
-                      onChange={(e) => setTeamName(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: 10,
-                        color: "var(--hint)",
-                        marginBottom: 4,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                      }}
-                    >
-                      Table #
-                    </label>
-                    <input
-                      style={inputStyle}
-                      placeholder="T01"
-                      value={teamTable}
-                      onChange={(e) => setTeamTable(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: 10,
-                        color: "var(--hint)",
-                        marginBottom: 4,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                      }}
-                    >
-                      Project
-                    </label>
-                    <input
-                      style={inputStyle}
-                      placeholder="Project name"
-                      value={teamProject}
-                      onChange={(e) => setTeamProject(e.target.value)}
-                    />
-                  </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                   <button
-                    type="submit"
+                    onClick={() => setBulkTeams(!bulkTeams)}
                     style={{
-                      background: "#bff066",
-                      border: "none",
+                      background: "none",
+                      border: "1px solid var(--border-c)",
                       borderRadius: 8,
-                      color: "#0c0c0d",
-                      padding: "8px 12px",
+                      color: bulkTeams ? "#bff066" : "var(--muted-c)",
+                      padding: "5px 12px",
                       fontSize: 11,
-                      fontWeight: 500,
                       cursor: "pointer",
-                      whiteSpace: "nowrap",
                     }}
                   >
-                    + Add
+                    {bulkTeams ? "Single add" : "Bulk import"}
                   </button>
-                </form>
+                </div>
+
+                {bulkTeams ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: "block", fontSize: 10, color: "var(--hint)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      One team per line: name, table #, project name
+                    </label>
+                    <textarea
+                      rows={6}
+                      style={{ ...inputStyle, resize: "vertical", fontFamily: "var(--font-mono, monospace)", fontSize: 12, lineHeight: 1.7 }}
+                      placeholder={"Rocket Builders, T01, LaunchPad\nAI Wizards, T02, MindMap\nGreen Team, T03, EcoTrack"}
+                      value={bulkTeamText}
+                      onChange={(e) => setBulkTeamText(e.target.value)}
+                    />
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                      <span style={{ fontSize: 11, color: "var(--hint)" }}>
+                        {bulkTeamText.split("\n").filter((l) => l.trim()).length} line{bulkTeamText.split("\n").filter((l) => l.trim()).length !== 1 ? "s" : ""}
+                      </span>
+                      <button
+                        onClick={bulkAddTeams}
+                        style={{
+                          background: "#bff066",
+                          border: "none",
+                          borderRadius: 8,
+                          color: "#0c0c0d",
+                          padding: "8px 16px",
+                          fontSize: 11,
+                          fontWeight: 500,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Import all
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={addTeam}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 80px 1fr auto",
+                      gap: 8,
+                      marginBottom: 16,
+                      alignItems: "end",
+                    }}
+                  >
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Name
+                      </label>
+                      <input
+                        style={inputStyle}
+                        placeholder="Team name"
+                        value={teamName}
+                        onChange={(e) => setTeamName(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Table #
+                      </label>
+                      <input
+                        style={inputStyle}
+                        placeholder="T01"
+                        value={teamTable}
+                        onChange={(e) => setTeamTable(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Project
+                      </label>
+                      <input
+                        style={inputStyle}
+                        placeholder="Project name"
+                        value={teamProject}
+                        onChange={(e) => setTeamProject(e.target.value)}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      style={{
+                        background: "#bff066",
+                        border: "none",
+                        borderRadius: 8,
+                        color: "#0c0c0d",
+                        padding: "8px 12px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      + Add
+                    </button>
+                  </form>
+                )}
 
                 <table style={tblStyle}>
                   <thead>
@@ -894,52 +1028,104 @@ export default function AdminPage() {
               <div
                 style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
               >
-                <form
-                  onSubmit={addJudge}
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    marginBottom: 16,
-                    alignItems: "end",
-                  }}
-                >
-                  <div style={{ flex: 1 }}>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: 10,
-                        color: "var(--hint)",
-                        marginBottom: 4,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                      }}
-                    >
-                      Name
-                    </label>
-                    <input
-                      style={inputStyle}
-                      placeholder="Judge name"
-                      value={judgeName}
-                      onChange={(e) => setJudgeName(e.target.value)}
-                    />
-                  </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                   <button
-                    type="submit"
+                    onClick={() => setBulkJudges(!bulkJudges)}
                     style={{
-                      background: "#bff066",
-                      border: "none",
+                      background: "none",
+                      border: "1px solid var(--border-c)",
                       borderRadius: 8,
-                      color: "#0c0c0d",
-                      padding: "8px 12px",
+                      color: bulkJudges ? "#bff066" : "var(--muted-c)",
+                      padding: "5px 12px",
                       fontSize: 11,
-                      fontWeight: 500,
                       cursor: "pointer",
-                      whiteSpace: "nowrap",
                     }}
                   >
-                    + Add judge
+                    {bulkJudges ? "Single add" : "Bulk import"}
                   </button>
-                </form>
+                </div>
+
+                {bulkJudges ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: "block", fontSize: 10, color: "var(--hint)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      One name per line, or comma-separated
+                    </label>
+                    <textarea
+                      rows={6}
+                      style={{ ...inputStyle, resize: "vertical", fontFamily: "var(--font-mono, monospace)", fontSize: 12, lineHeight: 1.7 }}
+                      placeholder={"Alice Johnson\nBob Smith\nCarol Lee, Dave Park"}
+                      value={bulkJudgeText}
+                      onChange={(e) => setBulkJudgeText(e.target.value)}
+                    />
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                      <span style={{ fontSize: 11, color: "var(--hint)" }}>
+                        {bulkJudgeText.split(/[\n,]/).filter((n) => n.trim()).length} name{bulkJudgeText.split(/[\n,]/).filter((n) => n.trim()).length !== 1 ? "s" : ""}
+                      </span>
+                      <button
+                        onClick={bulkAddJudges}
+                        style={{
+                          background: "#bff066",
+                          border: "none",
+                          borderRadius: 8,
+                          color: "#0c0c0d",
+                          padding: "8px 16px",
+                          fontSize: 11,
+                          fontWeight: 500,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Import all
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={addJudge}
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      marginBottom: 16,
+                      alignItems: "end",
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Name
+                      </label>
+                      <input
+                        style={inputStyle}
+                        placeholder="Judge name"
+                        value={judgeName}
+                        onChange={(e) => setJudgeName(e.target.value)}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      style={{
+                        background: "#bff066",
+                        border: "none",
+                        borderRadius: 8,
+                        color: "#0c0c0d",
+                        padding: "8px 12px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      + Add judge
+                    </button>
+                  </form>
+                )}
 
                 <table style={tblStyle}>
                   <thead>
