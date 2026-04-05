@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { EventData, Assignment, Team, Criterion } from "@/lib/types";
@@ -18,6 +18,8 @@ export default function JudgePortal() {
   const [scores, setScores] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [timerNow, setTimerNow] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const eq = `eventId=${encodeURIComponent(eventId)}`;
 
@@ -45,9 +47,35 @@ export default function JudgePortal() {
   }, [code, eventId]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch
-    fetchEvent();
+    fetchEvent(); // eslint-disable-line react-hooks/set-state-in-effect -- initial data fetch
   }, [fetchEvent]);
+
+  // Timer tick
+  useEffect(() => {
+    if (event?.judgingStatus === "active") {
+      setTimerNow(Date.now()); // eslint-disable-line react-hooks/set-state-in-effect -- sync timer on status change
+      timerRef.current = setInterval(() => setTimerNow(Date.now()), 1000);
+      return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    } else {
+      if (event?.judgingStartedAt) {
+        // Use stored stop time if available, otherwise fall back to now
+        const stopTime = event.judgingStoppedAt ? new Date(event.judgingStoppedAt).getTime() : Date.now();
+        setTimerNow(stopTime);
+      }
+      if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+  }, [event?.judgingStatus, event?.judgingStartedAt, event?.judgingStoppedAt]);
+
+  function formatTimer(ms: number): string {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
 
   const judge = event?.judges.find((j) => j.accessCode === code);
   const myAssignments =
@@ -55,6 +83,8 @@ export default function JudgePortal() {
   const completedCount = myAssignments.filter(
     (a) => a.status === "completed",
   ).length;
+  const judgingActive = (event?.judgingStatus ?? "idle") === "active";
+  const judgingStopped = (event?.judgingStatus ?? "idle") === "stopped";
 
   function toggleTeam(assignmentId: string) {
     if (openTeam === assignmentId) {
@@ -224,7 +254,7 @@ export default function JudgePortal() {
             justifyContent: "space-between",
             paddingBottom: 20,
             borderBottom: "1px solid var(--border-c)",
-            marginBottom: 24,
+            marginBottom: judgingActive || judgingStopped ? 0 : 24,
           }}
         >
           <div>
@@ -260,6 +290,89 @@ export default function JudgePortal() {
             </div>
           </div>
         </div>
+
+        {/* Timer & status banner */}
+        {(judgingActive || judgingStopped) && (
+          <div
+            style={{
+              padding: "12px 0",
+              marginBottom: 20,
+              borderBottom: "1px solid var(--border-c)",
+              textAlign: "center",
+            }}
+          >
+            {event.judgingStartedAt && (() => {
+              const elapsed = timerNow - new Date(event.judgingStartedAt).getTime();
+              const duration = (event.judgingDuration ?? 0) * 60 * 1000;
+              const hasLimit = duration > 0;
+              const remaining = hasLimit ? duration - elapsed : 0;
+              const isOver = hasLimit && remaining <= 0;
+              const displayMs = hasLimit ? Math.abs(remaining) : elapsed;
+              return (
+                <div
+                  className="font-serif"
+                  style={{
+                    fontSize: 28,
+                    fontWeight: 200,
+                    color: isOver ? "#f07070" : judgingActive ? "#bff066" : "var(--muted-c)",
+                    lineHeight: 1,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {isOver ? "-" : ""}{formatTimer(displayMs)}
+                </div>
+              );
+            })()}
+            {judgingStopped && (
+              <div
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: "#f0c866",
+                  fontWeight: 500,
+                }}
+              >
+                Judging has been paused by the organizer
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Organizer notes card */}
+        {event.organizerNotes && (
+          <div
+            style={{
+              background: "var(--s1)",
+              border: "1px solid var(--border-c)",
+              borderRadius: 12,
+              padding: "14px 16px",
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 10,
+                color: "#f0c866",
+                letterSpacing: "0.07em",
+                textTransform: "uppercase",
+                marginBottom: 6,
+                fontWeight: 500,
+              }}
+            >
+              Notes from organizers
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--text-c)",
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {event.organizerNotes}
+            </div>
+          </div>
+        )}
 
         {/* Team list */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -463,7 +576,7 @@ export default function JudgePortal() {
                         Cancel
                       </button>
                       <button
-                        disabled={saving}
+                        disabled={saving || judgingStopped}
                         onClick={() => saveScores(assignment.id, false)}
                         style={{
                           background: "none",
@@ -472,13 +585,14 @@ export default function JudgePortal() {
                           padding: "7px 14px",
                           borderRadius: 8,
                           fontSize: 12,
-                          cursor: "pointer",
+                          cursor: judgingStopped ? "not-allowed" : "pointer",
+                          opacity: judgingStopped ? 0.4 : 1,
                         }}
                       >
                         Save draft
                       </button>
                       <button
-                        disabled={saving}
+                        disabled={saving || judgingStopped}
                         onClick={() => saveScores(assignment.id, true)}
                         style={{
                           background: "#bff066",
@@ -488,8 +602,8 @@ export default function JudgePortal() {
                           borderRadius: 8,
                           fontSize: 12,
                           fontWeight: 500,
-                          cursor: "pointer",
-                          opacity: saving ? 0.6 : 1,
+                          cursor: judgingStopped ? "not-allowed" : "pointer",
+                          opacity: saving || judgingStopped ? 0.4 : 1,
                         }}
                       >
                         {saving ? "Saving..." : "Submit"}

@@ -43,5 +43,12 @@ export interface EventData {
   teams: Team[];
   judges: Judge[];
   assignments: Assignment[];
+  eventDate: string; // ISO date string for the event date (editable by master admin)
   createdAt: string;
+  judgingStatus: "idle" | "active" | "stopped";
+  judgingStartedAt: string | null;
+  judgingStoppedAt: string | null;
+  judgingDuration: number; // minutes, 0 = unlimited
+  organizerNotes: string; // markdown/plain text notes shown to judges
+  useWeightedScoring: boolean; // true = weighted, false = raw average
 }

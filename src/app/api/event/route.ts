@@ -47,7 +47,14 @@ export async function POST(req: NextRequest) {
     teams: [],
     judges: [],
     assignments: [],
+    eventDate: "",
     createdAt: new Date().toISOString(),
+    judgingStatus: "idle",
+    judgingStartedAt: null,
+    judgingStoppedAt: null,
+    judgingDuration: 0,
+    organizerNotes: "",
+    useWeightedScoring: true,
   };
 
   await setEvent(event);
@@ -67,12 +74,19 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, description } = body;
+  const { name, description, eventDate, judgingStatus, judgingStartedAt, judgingStoppedAt, judgingDuration, organizerNotes, useWeightedScoring } = body;
 
   const updated = await updateEvent(id, (event) => ({
     ...event,
     name: name ?? event.name,
     description: description ?? event.description,
+    eventDate: eventDate !== undefined ? eventDate : (event.eventDate ?? ""),
+    judgingStatus: judgingStatus ?? event.judgingStatus ?? "idle",
+    judgingStartedAt: judgingStartedAt !== undefined ? judgingStartedAt : (event.judgingStartedAt ?? null),
+    judgingStoppedAt: judgingStoppedAt !== undefined ? judgingStoppedAt : (event.judgingStoppedAt ?? null),
+    judgingDuration: judgingDuration !== undefined ? judgingDuration : (event.judgingDuration ?? 0),
+    organizerNotes: organizerNotes !== undefined ? organizerNotes : (event.organizerNotes ?? ""),
+    useWeightedScoring: useWeightedScoring !== undefined ? useWeightedScoring : (event.useWeightedScoring ?? true),
   }));
 
   if (!updated) {
@@ -92,6 +106,23 @@ export async function DELETE(req: NextRequest) {
       { error: "id query parameter is required" },
       { status: 400 }
     );
+  }
+
+  // Require either the event's admin PIN or the master admin secret
+  const event = await getEvent(id);
+  if (!event) {
+    return NextResponse.json({ error: "No event found" }, { status: 404 });
+  }
+
+  const providedPin = req.headers.get("x-admin-pin");
+  const providedSecret = req.headers.get("x-admin-secret");
+  const masterSecret = process.env.MASTER_ADMIN_SECRET;
+
+  const pinMatch = providedPin === event.adminPin;
+  const masterMatch = masterSecret && providedSecret === masterSecret;
+
+  if (!pinMatch && !masterMatch) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   await deleteEvent(id);

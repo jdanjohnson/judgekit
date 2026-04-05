@@ -37,7 +37,7 @@ function exportCSV(event: EventData) {
     "Judge Name",
     "Status",
     ...event.criteria.map((c) => c.name),
-    "Weighted Total",
+    (event.useWeightedScoring ?? true) ? "Weighted Total" : "Average Score",
     "Notes",
   ];
 
@@ -53,17 +53,30 @@ function exportCSV(event: EventData) {
       return score ? String(score.value) : "";
     });
 
-    let weightedTotal = 0;
-    let totalWeight = 0;
-    for (const c of event.criteria) {
-      const score = assignment.scores.find((s) => s.criterionId === c.id);
-      if (score) {
-        weightedTotal += (score.value / c.maxScore) * c.weight;
-        totalWeight += c.weight;
+    let finalScore = "";
+    if (event.useWeightedScoring ?? true) {
+      let weightedTotal = 0;
+      let totalWeight = 0;
+      for (const c of event.criteria) {
+        const score = assignment.scores.find((s) => s.criterionId === c.id);
+        if (score) {
+          weightedTotal += (score.value / c.maxScore) * c.weight;
+          totalWeight += c.weight;
+        }
       }
+      finalScore = totalWeight > 0 ? ((weightedTotal / totalWeight) * 100).toFixed(1) : "";
+    } else {
+      let sum = 0;
+      let count = 0;
+      for (const c of event.criteria) {
+        const score = assignment.scores.find((s) => s.criterionId === c.id);
+        if (score) {
+          sum += (score.value / c.maxScore) * 100;
+          count++;
+        }
+      }
+      finalScore = count > 0 ? (sum / count).toFixed(1) : "";
     }
-    const normalizedTotal =
-      totalWeight > 0 ? ((weightedTotal / totalWeight) * 100).toFixed(1) : "";
 
     rows.push([
       team.name,
@@ -72,7 +85,7 @@ function exportCSV(event: EventData) {
       judge.name,
       assignment.status,
       ...criteriaScores,
-      normalizedTotal,
+      finalScore,
       assignment.notes,
     ].map((cell) => cell.replace(/"/g, '""')));
   }

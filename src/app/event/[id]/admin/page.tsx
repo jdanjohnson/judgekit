@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { EventData, Team, Judge, Criterion } from "@/lib/types";
@@ -23,6 +23,24 @@ export default function AdminPage() {
   const [critMax, setCritMax] = useState("10");
   const [critWeight, setCritWeight] = useState("1");
   const [judgesPerTeam, setJudgesPerTeam] = useState("3");
+  const [bulkTeams, setBulkTeams] = useState(false);
+  const [bulkTeamText, setBulkTeamText] = useState("");
+  const [bulkJudges, setBulkJudges] = useState(false);
+  const [bulkJudgeText, setBulkJudgeText] = useState("");
+  const [assignJudgeId, setAssignJudgeId] = useState("");
+  const [assignTeamId, setAssignTeamId] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editDuration, setEditDuration] = useState("0");
+  const [editOrgNotes, setEditOrgNotes] = useState("");
+  const [editWeighted, setEditWeighted] = useState(true);
+  const [editingCriterionId, setEditingCriterionId] = useState<string | null>(null);
+  const [editCritName, setEditCritName] = useState("");
+  const [editCritMax, setEditCritMax] = useState("");
+  const [editCritWeight, setEditCritWeight] = useState("");
+  const [editCritDesc, setEditCritDesc] = useState("");
+  const [timerNow, setTimerNow] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -45,9 +63,36 @@ export default function AdminPage() {
       router.push("/");
       return;
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch
-    fetchEvent();
+    fetchEvent(); // eslint-disable-line react-hooks/set-state-in-effect -- initial data fetch
   }, [router, fetchEvent]);
+
+  // Sync edit form when event loads or changes
+  useEffect(() => {
+    if (event) {
+      setEditName(event.name); // eslint-disable-line react-hooks/set-state-in-effect -- sync form with loaded event
+      setEditDesc(event.description);
+      setEditDuration(String(event.judgingDuration ?? 0));
+      setEditOrgNotes(event.organizerNotes ?? "");
+      setEditWeighted(event.useWeightedScoring ?? true);
+    }
+  }, [event]);
+
+  // Timer tick
+  useEffect(() => {
+    if (event?.judgingStatus === "active") {
+      setTimerNow(Date.now()); // eslint-disable-line react-hooks/set-state-in-effect -- sync timer on status change
+      timerRef.current = setInterval(() => setTimerNow(Date.now()), 1000);
+      return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    } else {
+      if (event?.judgingStartedAt) {
+        // Use stored stop time if available, otherwise fall back to now
+        const stopTime = event.judgingStoppedAt ? new Date(event.judgingStoppedAt).getTime() : Date.now();
+        setTimerNow(stopTime);
+      }
+      if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+  }, [event?.judgingStatus, event?.judgingStartedAt, event?.judgingStoppedAt]);
 
   const eq = `eventId=${encodeURIComponent(eventId)}`;
 
@@ -83,6 +128,49 @@ export default function AdminPage() {
     }
   }
 
+  async function bulkAddTeams() {
+    const lines = bulkTeamText
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) {
+      toast.error("Paste at least one line");
+      return;
+    }
+    let added = 0;
+    let errors = 0;
+    for (const line of lines) {
+      const parts = line.split(",").map((p) => p.trim());
+      const name = parts[0] || "";
+      const tableNumber = parts[1] || "";
+      const projectName = parts[2] || "";
+      if (!name || !tableNumber) {
+        errors++;
+        continue;
+      }
+      try {
+        const res = await fetch(`/api/teams?${eq}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, tableNumber, projectName, description: "" }),
+        });
+        if (res.ok) added++;
+        else errors++;
+      } catch {
+        errors++;
+      }
+    }
+    if (added > 0) {
+      toast.success(`Added ${added} team${added > 1 ? "s" : ""}`);
+      setBulkTeamText("");
+      setBulkTeams(false);
+      fetchEvent();
+    }
+    if (errors > 0) {
+      toast.error(`${errors} line${errors > 1 ? "s" : ""} failed (need: name, table #)`);
+    }
+  }
+
   async function deleteTeam(id: string) {
     try {
       await fetch(`/api/teams?${eq}&id=${id}`, { method: "DELETE" });
@@ -115,6 +203,41 @@ export default function AdminPage() {
       }
     } catch {
       toast.error("Failed to add judge");
+    }
+  }
+
+  async function bulkAddJudges() {
+    const names = bulkJudgeText
+      .split(/[\n,]/)
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (names.length === 0) {
+      toast.error("Enter at least one name");
+      return;
+    }
+    let added = 0;
+    let errors = 0;
+    for (const name of names) {
+      try {
+        const res = await fetch(`/api/judges?${eq}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        if (res.ok) added++;
+        else errors++;
+      } catch {
+        errors++;
+      }
+    }
+    if (added > 0) {
+      toast.success(`Added ${added} judge${added > 1 ? "s" : ""}`);
+      setBulkJudgeText("");
+      setBulkJudges(false);
+      fetchEvent();
+    }
+    if (errors > 0) {
+      toast.error(`${errors} name${errors > 1 ? "s" : ""} failed`);
     }
   }
 
@@ -170,6 +293,41 @@ export default function AdminPage() {
     }
   }
 
+  async function addManualAssignment() {
+    if (!assignJudgeId || !assignTeamId) {
+      toast.error("Select both a judge and a team");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/assignments?${eq}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ judgeId: assignJudgeId, teamId: assignTeamId }),
+      });
+      if (res.ok) {
+        toast.success("Assignment added");
+        setAssignJudgeId("");
+        setAssignTeamId("");
+        fetchEvent();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to assign");
+      }
+    } catch {
+      toast.error("Failed to add assignment");
+    }
+  }
+
+  async function deleteAssignment(id: string) {
+    try {
+      await fetch(`/api/assignments?${eq}&id=${id}`, { method: "DELETE" });
+      toast.success("Assignment removed");
+      fetchEvent();
+    } catch {
+      toast.error("Failed to remove assignment");
+    }
+  }
+
   async function autoAssign() {
     try {
       const res = await fetch(`/api/assignments?${eq}`, {
@@ -206,6 +364,119 @@ export default function AdminPage() {
     } catch {
       toast.error("Failed to clear assignments");
     }
+  }
+
+  async function updateEventSettings() {
+    try {
+      const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName,
+          description: editDesc,
+          judgingDuration: Number(editDuration) || 0,
+          organizerNotes: editOrgNotes,
+          useWeightedScoring: editWeighted,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Settings saved");
+        fetchEvent();
+      } else {
+        toast.error("Failed to save settings");
+      }
+    } catch {
+      toast.error("Failed to save settings");
+    }
+  }
+
+  async function saveCriterionEdit(id: string) {
+    try {
+      const res = await fetch(`/api/criteria?${eq}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          name: editCritName,
+          description: editCritDesc,
+          maxScore: Number(editCritMax) || 10,
+          weight: Number(editCritWeight) || 1,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Criterion updated");
+        setEditingCriterionId(null);
+        fetchEvent();
+      } else {
+        toast.error("Failed to update criterion");
+      }
+    } catch {
+      toast.error("Failed to update criterion");
+    }
+  }
+
+  function startEditCriterion(c: Criterion) {
+    setEditingCriterionId(c.id);
+    setEditCritName(c.name);
+    setEditCritMax(String(c.maxScore));
+    setEditCritWeight(String(c.weight));
+    setEditCritDesc(c.description || "");
+  }
+
+  async function toggleJudging() {
+    if (!event) return;
+    const isActive = (event.judgingStatus ?? "idle") === "active";
+    try {
+      const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          judgingStatus: isActive ? "stopped" : "active",
+          judgingStartedAt: isActive ? event.judgingStartedAt : new Date().toISOString(),
+          judgingStoppedAt: isActive ? new Date().toISOString() : null,
+        }),
+      });
+      if (res.ok) {
+        toast.success(isActive ? "Judging stopped" : "Judging started!");
+        fetchEvent();
+      } else {
+        toast.error("Failed to update judging status");
+      }
+    } catch {
+      toast.error("Failed to update judging status");
+    }
+  }
+
+  async function resetJudging() {
+    try {
+      const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          judgingStatus: "idle",
+          judgingStartedAt: null,
+          judgingStoppedAt: null,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Timer reset");
+        fetchEvent();
+      } else {
+        toast.error("Failed to reset");
+      }
+    } catch {
+      toast.error("Failed to reset");
+    }
+  }
+
+  function formatTimer(ms: number): string {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
   function copyToClipboard(text: string, label: string) {
@@ -279,7 +550,13 @@ export default function AdminPage() {
           label: "Criteria",
           badge: String(event.criteria.length),
         },
+        {
+          key: "assign",
+          label: "Assignments",
+          badge: String(event.assignments.length),
+        },
         { key: "share", label: "Share", badge: null },
+        { key: "settings", label: "Settings", badge: null },
       ],
     },
     {
@@ -499,9 +776,19 @@ export default function AdminPage() {
                 >
                   Overview
                 </h2>
-                <span className="pill pill-green">
-                  <span className="pill-dot" /> Active
-                </span>
+                {(event.judgingStatus ?? "idle") === "active" ? (
+                  <span className="pill pill-green">
+                    <span className="pill-dot" /> Judging
+                  </span>
+                ) : (event.judgingStatus ?? "idle") === "stopped" ? (
+                  <span className="pill pill-amber">
+                    <span className="pill-dot" /> Stopped
+                  </span>
+                ) : (
+                  <span className="pill pill-gray">
+                    <span className="pill-dot" /> Idle
+                  </span>
+                )}
               </div>
               <div
                 style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
@@ -544,6 +831,93 @@ export default function AdminPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+
+                {/* Judging controls & timer */}
+                <div
+                  style={{
+                    background: "var(--s2)",
+                    borderRadius: 8,
+                    padding: "14px 16px",
+                    marginBottom: 18,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      marginBottom: event.judgingStartedAt ? 12 : 0,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <button
+                        onClick={toggleJudging}
+                        style={{
+                          background: (event.judgingStatus ?? "idle") === "active" ? "#f07070" : "#bff066",
+                          color: "#0c0c0d",
+                          border: "none",
+                          borderRadius: 8,
+                          padding: "7px 16px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {(event.judgingStatus ?? "idle") === "active" ? "Stop Judging" : "Start Judging"}
+                      </button>
+                      {(event.judgingStatus ?? "idle") !== "idle" && (
+                        <button
+                          onClick={resetJudging}
+                          style={{
+                            background: "none",
+                            border: "1px solid var(--border-c)",
+                            borderRadius: 8,
+                            padding: "7px 12px",
+                            fontSize: 11,
+                            color: "var(--muted-c)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                    {(event.judgingDuration ?? 0) > 0 && (
+                      <span style={{ fontSize: 11, color: "var(--muted-c)" }}>
+                        Duration: {event.judgingDuration}m
+                      </span>
+                    )}
+                  </div>
+                  {event.judgingStartedAt && (() => {
+                    const elapsed = timerNow - new Date(event.judgingStartedAt).getTime();
+                    const duration = (event.judgingDuration ?? 0) * 60 * 1000;
+                    const hasLimit = duration > 0;
+                    const remaining = hasLimit ? duration - elapsed : 0;
+                    const isOver = hasLimit && remaining <= 0;
+                    const displayMs = hasLimit ? Math.abs(remaining) : elapsed;
+                    return (
+                      <div style={{ textAlign: "center" }}>
+                        <div
+                          className="font-serif"
+                          style={{
+                            fontSize: 40,
+                            fontWeight: 200,
+                            color: isOver ? "#f07070" : (event.judgingStatus ?? "idle") === "active" ? "#bff066" : "var(--muted-c)",
+                            lineHeight: 1,
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {isOver ? "-" : ""}{formatTimer(displayMs)}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--muted-c)", marginTop: 4 }}>
+                          {(event.judgingStatus ?? "idle") === "active"
+                            ? (hasLimit ? (isOver ? "overtime" : "remaining") : "elapsed")
+                            : (event.judgingStatus ?? "idle") === "stopped" ? "stopped" : ""}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Auto-assign controls */}
@@ -705,93 +1079,145 @@ export default function AdminPage() {
               <div
                 style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
               >
-                <form
-                  onSubmit={addTeam}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 80px 1fr auto",
-                    gap: 8,
-                    marginBottom: 16,
-                    alignItems: "end",
-                  }}
-                >
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: 10,
-                        color: "var(--hint)",
-                        marginBottom: 4,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                      }}
-                    >
-                      Name
-                    </label>
-                    <input
-                      style={inputStyle}
-                      placeholder="Team name"
-                      value={teamName}
-                      onChange={(e) => setTeamName(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: 10,
-                        color: "var(--hint)",
-                        marginBottom: 4,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                      }}
-                    >
-                      Table #
-                    </label>
-                    <input
-                      style={inputStyle}
-                      placeholder="T01"
-                      value={teamTable}
-                      onChange={(e) => setTeamTable(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: 10,
-                        color: "var(--hint)",
-                        marginBottom: 4,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                      }}
-                    >
-                      Project
-                    </label>
-                    <input
-                      style={inputStyle}
-                      placeholder="Project name"
-                      value={teamProject}
-                      onChange={(e) => setTeamProject(e.target.value)}
-                    />
-                  </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                   <button
-                    type="submit"
+                    onClick={() => setBulkTeams(!bulkTeams)}
                     style={{
-                      background: "#bff066",
-                      border: "none",
+                      background: "none",
+                      border: "1px solid var(--border-c)",
                       borderRadius: 8,
-                      color: "#0c0c0d",
-                      padding: "8px 12px",
+                      color: bulkTeams ? "#bff066" : "var(--muted-c)",
+                      padding: "5px 12px",
                       fontSize: 11,
-                      fontWeight: 500,
                       cursor: "pointer",
-                      whiteSpace: "nowrap",
                     }}
                   >
-                    + Add
+                    {bulkTeams ? "Single add" : "Bulk import"}
                   </button>
-                </form>
+                </div>
+
+                {bulkTeams ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: "block", fontSize: 10, color: "var(--hint)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      One team per line: name, table #, project name
+                    </label>
+                    <textarea
+                      rows={6}
+                      style={{ ...inputStyle, resize: "vertical", fontFamily: "var(--font-mono, monospace)", fontSize: 12, lineHeight: 1.7 }}
+                      placeholder={"Rocket Builders, T01, LaunchPad\nAI Wizards, T02, MindMap\nGreen Team, T03, EcoTrack"}
+                      value={bulkTeamText}
+                      onChange={(e) => setBulkTeamText(e.target.value)}
+                    />
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                      <span style={{ fontSize: 11, color: "var(--hint)" }}>
+                        {bulkTeamText.split("\n").filter((l) => l.trim()).length} line{bulkTeamText.split("\n").filter((l) => l.trim()).length !== 1 ? "s" : ""}
+                      </span>
+                      <button
+                        onClick={bulkAddTeams}
+                        style={{
+                          background: "#bff066",
+                          border: "none",
+                          borderRadius: 8,
+                          color: "#0c0c0d",
+                          padding: "8px 16px",
+                          fontSize: 11,
+                          fontWeight: 500,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Import all
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={addTeam}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 80px 1fr auto",
+                      gap: 8,
+                      marginBottom: 16,
+                      alignItems: "end",
+                    }}
+                  >
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Name
+                      </label>
+                      <input
+                        style={inputStyle}
+                        placeholder="Team name"
+                        value={teamName}
+                        onChange={(e) => setTeamName(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Table #
+                      </label>
+                      <input
+                        style={inputStyle}
+                        placeholder="T01"
+                        value={teamTable}
+                        onChange={(e) => setTeamTable(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Project
+                      </label>
+                      <input
+                        style={inputStyle}
+                        placeholder="Project name"
+                        value={teamProject}
+                        onChange={(e) => setTeamProject(e.target.value)}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      style={{
+                        background: "#bff066",
+                        border: "none",
+                        borderRadius: 8,
+                        color: "#0c0c0d",
+                        padding: "8px 12px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      + Add
+                    </button>
+                  </form>
+                )}
 
                 <table style={tblStyle}>
                   <thead>
@@ -894,52 +1320,104 @@ export default function AdminPage() {
               <div
                 style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
               >
-                <form
-                  onSubmit={addJudge}
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    marginBottom: 16,
-                    alignItems: "end",
-                  }}
-                >
-                  <div style={{ flex: 1 }}>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: 10,
-                        color: "var(--hint)",
-                        marginBottom: 4,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                      }}
-                    >
-                      Name
-                    </label>
-                    <input
-                      style={inputStyle}
-                      placeholder="Judge name"
-                      value={judgeName}
-                      onChange={(e) => setJudgeName(e.target.value)}
-                    />
-                  </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                   <button
-                    type="submit"
+                    onClick={() => setBulkJudges(!bulkJudges)}
                     style={{
-                      background: "#bff066",
-                      border: "none",
+                      background: "none",
+                      border: "1px solid var(--border-c)",
                       borderRadius: 8,
-                      color: "#0c0c0d",
-                      padding: "8px 12px",
+                      color: bulkJudges ? "#bff066" : "var(--muted-c)",
+                      padding: "5px 12px",
                       fontSize: 11,
-                      fontWeight: 500,
                       cursor: "pointer",
-                      whiteSpace: "nowrap",
                     }}
                   >
-                    + Add judge
+                    {bulkJudges ? "Single add" : "Bulk import"}
                   </button>
-                </form>
+                </div>
+
+                {bulkJudges ? (
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: "block", fontSize: 10, color: "var(--hint)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      One name per line, or comma-separated
+                    </label>
+                    <textarea
+                      rows={6}
+                      style={{ ...inputStyle, resize: "vertical", fontFamily: "var(--font-mono, monospace)", fontSize: 12, lineHeight: 1.7 }}
+                      placeholder={"Alice Johnson\nBob Smith\nCarol Lee, Dave Park"}
+                      value={bulkJudgeText}
+                      onChange={(e) => setBulkJudgeText(e.target.value)}
+                    />
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                      <span style={{ fontSize: 11, color: "var(--hint)" }}>
+                        {bulkJudgeText.split(/[\n,]/).filter((n) => n.trim()).length} name{bulkJudgeText.split(/[\n,]/).filter((n) => n.trim()).length !== 1 ? "s" : ""}
+                      </span>
+                      <button
+                        onClick={bulkAddJudges}
+                        style={{
+                          background: "#bff066",
+                          border: "none",
+                          borderRadius: 8,
+                          color: "#0c0c0d",
+                          padding: "8px 16px",
+                          fontSize: 11,
+                          fontWeight: 500,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Import all
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={addJudge}
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      marginBottom: 16,
+                      alignItems: "end",
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Name
+                      </label>
+                      <input
+                        style={inputStyle}
+                        placeholder="Judge name"
+                        value={judgeName}
+                        onChange={(e) => setJudgeName(e.target.value)}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      style={{
+                        background: "#bff066",
+                        border: "none",
+                        borderRadius: 8,
+                        color: "#0c0c0d",
+                        padding: "8px 12px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      + Add judge
+                    </button>
+                  </form>
+                )}
 
                 <table style={tblStyle}>
                   <thead>
@@ -1121,37 +1599,126 @@ export default function AdminPage() {
                   <thead>
                     <tr>
                       <th style={thStyle}>Criterion</th>
+                      <th style={thStyle}>Description</th>
                       <th style={thStyle}>Max</th>
                       <th style={thStyle}>Weight</th>
-                      <th style={{ ...thStyle, width: 32 }} />
+                      <th style={{ ...thStyle, width: 72 }} />
                     </tr>
                   </thead>
                   <tbody>
-                    {event.criteria.map((c: Criterion) => (
-                      <tr key={c.id}>
-                        <td style={tdStyle}>{c.name}</td>
-                        <td style={tdStyle}>{c.maxScore}</td>
-                        <td style={tdStyle}>{c.weight}%</td>
-                        <td style={tdStyle}>
-                          <button
-                            onClick={() => deleteCriterion(c.id)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "var(--hint)",
-                              cursor: "pointer",
-                              fontSize: 13,
-                            }}
-                          >
-                            &times;
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {event.criteria.map((c: Criterion) =>
+                      editingCriterionId === c.id ? (
+                        <tr key={c.id}>
+                          <td style={tdStyle}>
+                            <input
+                              style={{ ...inputStyle, padding: "4px 6px", fontSize: 12 }}
+                              value={editCritName}
+                              onChange={(e) => setEditCritName(e.target.value)}
+                            />
+                          </td>
+                          <td style={tdStyle}>
+                            <input
+                              style={{ ...inputStyle, padding: "4px 6px", fontSize: 12 }}
+                              value={editCritDesc}
+                              onChange={(e) => setEditCritDesc(e.target.value)}
+                              placeholder="Optional description"
+                            />
+                          </td>
+                          <td style={tdStyle}>
+                            <input
+                              type="number"
+                              style={{ ...inputStyle, padding: "4px 6px", fontSize: 12, width: 56 }}
+                              value={editCritMax}
+                              onChange={(e) => setEditCritMax(e.target.value)}
+                            />
+                          </td>
+                          <td style={tdStyle}>
+                            <input
+                              type="number"
+                              style={{ ...inputStyle, padding: "4px 6px", fontSize: 12, width: 56 }}
+                              value={editCritWeight}
+                              onChange={(e) => setEditCritWeight(e.target.value)}
+                            />
+                          </td>
+                          <td style={tdStyle}>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <button
+                                onClick={() => saveCriterionEdit(c.id)}
+                                style={{
+                                  background: "#bff066",
+                                  border: "none",
+                                  borderRadius: 6,
+                                  color: "#0c0c0d",
+                                  padding: "3px 8px",
+                                  fontSize: 10,
+                                  cursor: "pointer",
+                                  fontWeight: 500,
+                                }}
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setEditingCriterionId(null)}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid var(--border-c)",
+                                  borderRadius: 6,
+                                  color: "var(--muted-c)",
+                                  padding: "3px 8px",
+                                  fontSize: 10,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr key={c.id}>
+                          <td style={tdStyle}>{c.name}</td>
+                          <td style={{ ...tdStyle, color: c.description ? "var(--text-c)" : "var(--hint)", fontSize: 11 }}>
+                            {c.description || "\u2014"}
+                          </td>
+                          <td style={tdStyle}>{c.maxScore}</td>
+                          <td style={tdStyle}>{c.weight}%</td>
+                          <td style={tdStyle}>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <button
+                                onClick={() => startEditCriterion(c)}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid var(--border-c)",
+                                  borderRadius: 6,
+                                  color: "var(--muted-c)",
+                                  padding: "3px 8px",
+                                  fontSize: 10,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => deleteCriterion(c.id)}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "var(--hint)",
+                                  cursor: "pointer",
+                                  fontSize: 13,
+                                }}
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ),
+                    )}
                     {event.criteria.length === 0 && (
                       <tr>
                         <td
-                          colSpan={4}
+                          colSpan={5}
                           style={{
                             ...tdStyle,
                             textAlign: "center",
@@ -1167,6 +1734,380 @@ export default function AdminPage() {
               </div>
             </>
           )}
+
+          {/* Assignments */}
+          {activeTab === "assign" && (() => {
+            const minJudges = Number(judgesPerTeam) || 3;
+            const teamsUnder = event.teams.filter((t) => {
+              const count = event.assignments.filter((a) => a.teamId === t.id).length;
+              return count < minJudges;
+            });
+            const judgesUnassigned = event.judges.filter(
+              (j) => !event.assignments.some((a) => a.judgeId === j.id),
+            );
+            return (
+              <>
+                <div
+                  style={{
+                    padding: "13px 16px",
+                    borderBottom: "1px solid var(--border-c)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <h2
+                    className="font-serif"
+                    style={{ fontSize: 17, fontWeight: 200 }}
+                  >
+                    Assignments
+                  </h2>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={autoAssign}
+                      style={{
+                        background: "#bff066",
+                        color: "#0c0c0d",
+                        border: "none",
+                        borderRadius: 8,
+                        padding: "5px 12px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Auto-assign
+                    </button>
+                    {event.assignments.length > 0 && (
+                      <button
+                        onClick={clearAssignments}
+                        style={{
+                          background: "none",
+                          border: "1px solid var(--border-c)",
+                          borderRadius: 8,
+                          padding: "5px 12px",
+                          fontSize: 11,
+                          color: "var(--muted-c)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div
+                  style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
+                >
+                  {/* Warnings */}
+                  {(teamsUnder.length > 0 || judgesUnassigned.length > 0) && (
+                    <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {teamsUnder.length > 0 && (
+                        <div
+                          style={{
+                            background: "rgba(240,200,102,.08)",
+                            border: "1px solid rgba(240,200,102,.22)",
+                            borderRadius: 8,
+                            padding: "10px 13px",
+                            fontSize: 12,
+                            color: "#f0c866",
+                          }}
+                        >
+                          <strong style={{ fontWeight: 600 }}>⚠ {teamsUnder.length} team{teamsUnder.length > 1 ? "s" : ""} below target</strong>
+                          <span style={{ color: "var(--muted-c)", marginLeft: 6 }}>
+                            (need {minJudges} judge{minJudges > 1 ? "s" : ""} each)
+                          </span>
+                          <div style={{ marginTop: 6, fontSize: 11, color: "var(--muted-c)", lineHeight: 1.7 }}>
+                            {teamsUnder.map((t) => {
+                              const count = event.assignments.filter((a) => a.teamId === t.id).length;
+                              return (
+                                <span key={t.id} style={{ display: "inline-block", marginRight: 10 }}>
+                                  <span style={{ color: "#f0c866" }}>{t.name}</span>{" "}
+                                  <span style={{ color: "var(--hint)" }}>({count}/{minJudges})</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {judgesUnassigned.length > 0 && (
+                        <div
+                          style={{
+                            background: "rgba(102,240,194,.06)",
+                            border: "1px solid rgba(102,240,194,.18)",
+                            borderRadius: 8,
+                            padding: "10px 13px",
+                            fontSize: 12,
+                            color: "#66f0c2",
+                          }}
+                        >
+                          <strong style={{ fontWeight: 600 }}>{judgesUnassigned.length} judge{judgesUnassigned.length > 1 ? "s" : ""} unassigned</strong>
+                          <div style={{ marginTop: 4, fontSize: 11, color: "var(--muted-c)" }}>
+                            {judgesUnassigned.map((j) => j.name).join(", ")}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Manual assign */}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      marginBottom: 16,
+                      alignItems: "end",
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Judge
+                      </label>
+                      <select
+                        value={assignJudgeId}
+                        onChange={(e) => setAssignJudgeId(e.target.value)}
+                        style={{ ...inputStyle, cursor: "pointer" }}
+                      >
+                        <option value="">Select judge...</option>
+                        {event.judges.map((j: Judge) => (
+                          <option key={j.id} value={j.id}>
+                            {j.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          color: "var(--hint)",
+                          marginBottom: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Team
+                      </label>
+                      <select
+                        value={assignTeamId}
+                        onChange={(e) => setAssignTeamId(e.target.value)}
+                        style={{ ...inputStyle, cursor: "pointer" }}
+                      >
+                        <option value="">Select team...</option>
+                        {event.teams.map((t: Team) => (
+                          <option key={t.id} value={t.id}>
+                            {t.tableNumber} — {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      onClick={addManualAssignment}
+                      style={{
+                        background: "#bff066",
+                        border: "none",
+                        borderRadius: 8,
+                        color: "#0c0c0d",
+                        padding: "8px 14px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      + Assign
+                    </button>
+                  </div>
+
+                  {/* Judges per team setting */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 16,
+                      padding: "8px 10px",
+                      background: "var(--s2)",
+                      borderRadius: 8,
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: "var(--muted-c)" }}>
+                      Target judges per team:
+                    </span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={judgesPerTeam}
+                      onChange={(e) => setJudgesPerTeam(e.target.value)}
+                      style={{
+                        width: 50,
+                        background: "var(--s3)",
+                        border: "1px solid var(--border-c)",
+                        borderRadius: 6,
+                        color: "var(--text-c)",
+                        padding: "4px 8px",
+                        fontSize: 12,
+                        outline: "none",
+                      }}
+                    />
+                  </div>
+
+                  {/* Assignment table by team */}
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "var(--hint)",
+                      letterSpacing: "0.07em",
+                      textTransform: "uppercase",
+                      marginBottom: 9,
+                    }}
+                  >
+                    All assignments
+                  </div>
+                  {event.teams.map((team: Team) => {
+                    const teamAssignments = event.assignments.filter(
+                      (a) => a.teamId === team.id,
+                    );
+                    const count = teamAssignments.length;
+                    const isUnder = count < minJudges;
+                    return (
+                      <div
+                        key={team.id}
+                        style={{
+                          marginBottom: 12,
+                          border: `1px solid ${isUnder ? "rgba(240,200,102,.3)" : "var(--border-c)"}`,
+                          borderRadius: 10,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "8px 12px",
+                            background: isUnder ? "rgba(240,200,102,.06)" : "var(--s2)",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 10, color: "var(--hint)" }}>
+                              {team.tableNumber}
+                            </span>
+                            <span style={{ fontSize: 12, color: "var(--text-c)" }}>
+                              {team.name}
+                            </span>
+                          </div>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              padding: "2px 8px",
+                              borderRadius: 100,
+                              background: isUnder
+                                ? "rgba(240,200,102,.15)"
+                                : count > 0
+                                  ? "rgba(191,240,102,.12)"
+                                  : "var(--s3)",
+                              color: isUnder
+                                ? "#f0c866"
+                                : count > 0
+                                  ? "#bff066"
+                                  : "var(--hint)",
+                            }}
+                          >
+                            {count}/{minJudges} judges
+                          </span>
+                        </div>
+                        {teamAssignments.length > 0 ? (
+                          <div style={{ padding: "0 12px 8px" }}>
+                            {teamAssignments.map((a) => {
+                              const judge = event.judges.find((j) => j.id === a.judgeId);
+                              return (
+                                <div
+                                  key={a.id}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    padding: "6px 0",
+                                    borderBottom: "1px solid rgba(42,42,47,.3)",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontSize: 12 }}>
+                                      {judge?.name || "Unknown"}
+                                    </span>
+                                    {a.status === "completed" ? (
+                                      <span className="pill pill-green" style={{ fontSize: 9 }}>
+                                        <span className="pill-dot" /> Done
+                                      </span>
+                                    ) : a.status === "in_progress" ? (
+                                      <span className="pill pill-amber" style={{ fontSize: 9 }}>
+                                        <span className="pill-dot" /> Scoring
+                                      </span>
+                                    ) : (
+                                      <span className="pill pill-gray" style={{ fontSize: 9 }}>
+                                        <span className="pill-dot" /> Pending
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => deleteAssignment(a.id)}
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      color: "var(--hint)",
+                                      cursor: "pointer",
+                                      fontSize: 13,
+                                      padding: "2px 6px",
+                                    }}
+                                  >
+                                    &times;
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              fontSize: 11,
+                              color: "var(--hint)",
+                              fontStyle: "italic",
+                            }}
+                          >
+                            No judges assigned
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {event.teams.length === 0 && (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        color: "var(--hint)",
+                        fontSize: 12,
+                        padding: 20,
+                      }}
+                    >
+                      Add teams and judges first
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
 
           {/* Share */}
           {activeTab === "share" && (
@@ -1293,6 +2234,262 @@ export default function AdminPage() {
                     </button>
                   </div>
                 ))}
+              </div>
+            </>
+          )}
+
+          {/* Settings */}
+          {activeTab === "settings" && (
+            <>
+              <div
+                style={{
+                  padding: "13px 16px",
+                  borderBottom: "1px solid var(--border-c)",
+                }}
+              >
+                <h2
+                  className="font-serif"
+                  style={{ fontSize: 17, fontWeight: 200 }}
+                >
+                  Settings
+                </h2>
+              </div>
+              <div
+                style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                  }}
+                >
+                  Event details
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      color: "var(--hint)",
+                      marginBottom: 4,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Event name
+                  </label>
+                  <input
+                    style={inputStyle}
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                  />
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      color: "var(--hint)",
+                      marginBottom: 4,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Description
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    style={{
+                      ...inputStyle,
+                      resize: "none",
+                    }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                    marginTop: 24,
+                  }}
+                >
+                  Judging timer
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      color: "var(--hint)",
+                      marginBottom: 4,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Duration (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    style={{ ...inputStyle, width: 120 }}
+                    value={editDuration}
+                    onChange={(e) => setEditDuration(e.target.value)}
+                  />
+                  <div style={{ fontSize: 11, color: "var(--hint)", marginTop: 4 }}>
+                    Set to 0 for unlimited (shows elapsed time only)
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                    marginTop: 24,
+                  }}
+                >
+                  Organizer notes for judges
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      color: "var(--hint)",
+                      marginBottom: 4,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Notes (visible to all judges)
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={editOrgNotes}
+                    onChange={(e) => setEditOrgNotes(e.target.value)}
+                    placeholder="Leave instructions, reminders, or announcements for judges here..."
+                    style={{
+                      ...inputStyle,
+                      resize: "vertical",
+                      fontSize: 12,
+                      lineHeight: 1.6,
+                    }}
+                  />
+                  <div style={{ fontSize: 11, color: "var(--hint)", marginTop: 4 }}>
+                    Judges will see this in a card below their scoring area
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                    marginTop: 24,
+                  }}
+                >
+                  Scoring
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <button
+                      onClick={() => setEditWeighted(!editWeighted)}
+                      style={{
+                        width: 40,
+                        height: 22,
+                        borderRadius: 12,
+                        border: "none",
+                        background: editWeighted ? "#bff066" : "var(--s2)",
+                        position: "relative",
+                        cursor: "pointer",
+                        transition: "background 0.2s",
+                      }}
+                    >
+                      <span
+                        style={{
+                          position: "absolute",
+                          top: 3,
+                          left: editWeighted ? 20 : 3,
+                          width: 16,
+                          height: 16,
+                          borderRadius: "50%",
+                          background: editWeighted ? "#0c0c0d" : "var(--muted-c)",
+                          transition: "left 0.2s",
+                        }}
+                      />
+                    </button>
+                    <span style={{ fontSize: 12, color: "var(--text-c)" }}>
+                      Use weighted scoring
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--hint)", marginTop: 6 }}>
+                    {editWeighted
+                      ? "Final scores are calculated using criterion weights (normalized to 100%)"
+                      : "Final scores are a simple average of all criteria (weights ignored)"}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                    marginTop: 24,
+                  }}
+                >
+                  Info
+                </div>
+                <div
+                  style={{
+                    background: "var(--s2)",
+                    borderRadius: 8,
+                    padding: "10px 13px",
+                    fontSize: 12,
+                    color: "var(--muted-c)",
+                    marginBottom: 20,
+                  }}
+                >
+                  <div>Event ID: <span className="code-chip">{eventId}</span></div>
+                  <div style={{ marginTop: 6 }}>
+                    Created: {new Date(event.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+
+                <button
+                  onClick={updateEventSettings}
+                  style={{
+                    background: "#bff066",
+                    color: "#0c0c0d",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "9px 20px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Save settings
+                </button>
               </div>
             </>
           )}
