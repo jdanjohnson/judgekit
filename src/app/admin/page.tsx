@@ -57,7 +57,6 @@ export default function MasterAdminPage() {
         setAuthenticated(true);
       } else if (res.status === 401) {
         setAuthenticated(false);
-        setAuthError("Invalid secret");
       } else {
         toast.error("Failed to load events");
       }
@@ -72,7 +71,7 @@ export default function MasterAdminPage() {
     fetchEvents(); // eslint-disable-line react-hooks/set-state-in-effect -- initial data fetch
   }, [fetchEvents]);
 
-  function handleAuth() {
+  async function handleAuth() {
     if (!masterSecret.trim()) {
       setAuthError("Secret is required");
       return;
@@ -80,7 +79,26 @@ export default function MasterAdminPage() {
     setAuthError("");
     sessionStorage.setItem("masterAdminSecret", masterSecret.trim());
     setLoading(true);
-    fetchEvents(masterSecret.trim());
+    try {
+      const res = await fetch("/api/admin-list", {
+        headers: { "x-admin-secret": masterSecret.trim() },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEvents(data);
+        setAuthenticated(true);
+      } else if (res.status === 401) {
+        setAuthenticated(false);
+        setAuthError("Invalid secret");
+        sessionStorage.removeItem("masterAdminSecret");
+      } else {
+        toast.error("Failed to load events");
+      }
+    } catch {
+      toast.error("Connection error");
+    }
+    setLoading(false);
+    setAuthChecked(true);
   }
 
   function togglePin(id: string) {
