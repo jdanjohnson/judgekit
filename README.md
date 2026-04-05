@@ -1,17 +1,26 @@
-# JudgeKit
+<p align="center">
+  <strong>JudgeKit</strong><br/>
+  <em>Lightweight judging for hackathons, science fairs, and pitch competitions.</em>
+</p>
 
-Lightweight hackathon & science fair judging tool. Assign judges to teams, score on configurable criteria, track progress, and export results. **Shareable links, no accounts needed** — deploy to Vercel with Upstash Redis for persistent storage.
+<p align="center">
+  <a href="https://vercel.com/new/clone?repository-url=https://github.com/jdanjohnson/judgekit&env=UPSTASH_REDIS_REST_URL,UPSTASH_REDIS_REST_TOKEN"><img src="https://vercel.com/button" alt="Deploy with Vercel" /></a>
+</p>
+
+---
+
+Assign judges to teams, score on configurable criteria, track progress in real-time, and export results — all without accounts. Every judge, team, and admin gets a **shareable link**.
 
 ## Features
 
-- **Admin Dashboard** — Create events, add teams (with table numbers), add judges (auto-generated access codes), configure scoring criteria, assign judges manually or auto-distribute
-- **Judge Portal** — Judges use a direct link or 6-character code to see assigned teams, score on each criterion, add notes, and submit
-- **Team View** — Teams use a direct link or table number to see assigned judges and judging progress (auto-refreshes)
-- **Shareable Links** — Every judge and team gets a unique URL that can be shared directly
-- **Assignment Matrix** — Visual grid showing all judge-team assignments with status colors
+- **Admin Dashboard** — Sidebar layout with overview stats, team/judge/criteria management, shareable links, and CSV/JSON export
+- **Judge Portal** — Collapsible team cards with slider-based scoring, notes, and draft saving
+- **Team View** — See assigned judges, judging status, and scores (once all judging is complete)
+- **Unified Entry** — Single landing page with code-based lookup for judges, teams, and admins
+- **Multi-Step Event Creation** — Guided wizard: Details → Criteria → Settings
 - **Auto-Assign** — Evenly distribute judges across teams with one click
-- **Export** — Download results as CSV (for Excel/Sheets) or JSON
-- **Rankings** — Live weighted-average team rankings in the admin dashboard
+- **Real-Time Progress** — Live progress bars and status pills across all views
+- **Export** — Download results as CSV or JSON from the admin sidebar
 - **Multi-Event** — Single deployment supports unlimited concurrent events
 
 ## Quick Start
@@ -19,14 +28,16 @@ Lightweight hackathon & science fair judging tool. Assign judges to teams, score
 ### 1. Set up Upstash Redis
 
 1. Create a free Redis database at [console.upstash.com](https://console.upstash.com)
-2. Copy the `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
+2. Copy the **REST URL** and **REST Token**
 
 ### 2. Run locally
 
 ```bash
+git clone https://github.com/jdanjohnson/judgekit.git
+cd judgekit
 npm install
 cp .env.example .env.local
-# Edit .env.local with your Upstash credentials
+# Add your Upstash credentials to .env.local
 npm run dev
 ```
 
@@ -34,48 +45,82 @@ Open [http://localhost:3000](http://localhost:3000) and create a new event.
 
 ### 3. Deploy to Vercel
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/jdanjohnson/judgekit&env=UPSTASH_REDIS_REST_URL,UPSTASH_REDIS_REST_TOKEN)
+Click the **Deploy** button above, or:
 
-Or connect your GitHub repo to Vercel and add the environment variables:
-- `UPSTASH_REDIS_REST_URL`
-- `UPSTASH_REDIS_REST_TOKEN`
+1. Fork this repo
+2. Import it on [vercel.com/new](https://vercel.com/new)
+3. Add environment variables:
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
+4. Deploy
 
-> **Tip:** If you add the [Upstash integration](https://vercel.com/integrations/upstash) on Vercel, the env vars (`KV_REST_API_URL` / `KV_REST_API_TOKEN`) are set automatically.
+> **Tip:** Install the [Upstash Vercel integration](https://vercel.com/integrations/upstash) to auto-configure the env vars.
 
 ## How It Works
 
-1. **Create an event** with a name and admin PIN
-2. **Add teams** with table numbers and optional project names
+1. **Create an event** — name, description, admin PIN
+2. **Add teams** — team name, table number, project name
 3. **Add judges** — each gets a unique 6-character access code
 4. **Set scoring criteria** — name, max score, and weight
-5. **Assign judges to teams** — manually via the matrix or auto-assign
-6. **Share links** — use the Share tab to copy direct URLs for each judge and team
-7. **Judges score** teams through their portal
-8. **Export results** when judging is complete
+5. **Assign judges** — auto-assign or manage manually
+6. **Share links** — copy direct URLs for each judge and team from the Share tab
+7. **Judges score** — open their link, expand a team card, slide to score, submit
+8. **Export results** — CSV or JSON when judging is complete
 
 ## URL Structure
 
-Each event gets a unique 8-character ID. All URLs are shareable:
+| Role  | URL Pattern                            |
+|-------|----------------------------------------|
+| Admin | `/event/{eventId}/admin`               |
+| Judge | `/event/{eventId}/judge/{accessCode}`  |
+| Team  | `/event/{eventId}/team/{tableNumber}`  |
 
-| Role  | URL Pattern |
-|-------|-------------|
-| Admin | `/event/{eventId}/admin` |
-| Judge | `/event/{eventId}/judge/{accessCode}` |
-| Team  | `/event/{eventId}/team/{tableNumber}` |
+Codes can also be entered on the landing page — a unified lookup resolves the correct route.
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `UPSTASH_REDIS_REST_URL` | Yes | Upstash Redis REST URL |
-| `UPSTASH_REDIS_REST_TOKEN` | Yes | Upstash Redis REST token |
+| Variable                    | Required | Description              |
+|-----------------------------|----------|--------------------------|
+| `UPSTASH_REDIS_REST_URL`    | Yes      | Upstash Redis REST URL   |
+| `UPSTASH_REDIS_REST_TOKEN`  | Yes      | Upstash Redis REST token |
 
-The app also accepts `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Vercel KV naming).
+Also accepts `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Vercel KV naming).
 
 ## Tech Stack
 
 - [Next.js](https://nextjs.org) 16 (App Router)
 - [TypeScript](https://www.typescriptlang.org)
 - [Tailwind CSS](https://tailwindcss.com) 4
-- [shadcn/ui](https://ui.shadcn.com)
-- [Upstash Redis](https://upstash.com) (serverless storage)
+- [Upstash Redis](https://upstash.com) — serverless key-value storage
+- Custom dark theme with DM Mono + Fraunces typography
+
+## Contributing
+
+Contributions are welcome! Here's how to get started:
+
+1. **Fork** the repo and clone your fork
+2. **Install** dependencies: `npm install`
+3. **Create a branch**: `git checkout -b feat/your-feature`
+4. **Make changes** and test locally with `npm run dev`
+5. **Lint**: `npm run lint`
+6. **Build**: `npm run build`
+7. **Commit** with a clear message and push
+8. **Open a Pull Request** against `main`
+
+### Guidelines
+
+- Keep PRs focused — one feature or fix per PR
+- Follow the existing code style (TypeScript, inline styles for UI components)
+- Test your changes locally before submitting
+- Update the README if your change affects setup or usage
+
+### Reporting Issues
+
+Open an [issue](https://github.com/jdanjohnson/judgekit/issues) with:
+- A clear title and description
+- Steps to reproduce (if it's a bug)
+- Expected vs actual behavior
+
+## License
+
+MIT

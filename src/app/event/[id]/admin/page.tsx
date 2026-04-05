@@ -2,44 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import {
-  ClipboardList,
-  Plus,
-  Trash2,
-  Users,
-  Award,
-  Target,
-  Download,
-  Shuffle,
-  ArrowLeft,
-  Copy,
-  BarChart3,
-  Link,
-} from "lucide-react";
 import { EventData, Team, Judge, Criterion } from "@/lib/types";
 
 export default function AdminPage() {
@@ -49,15 +12,14 @@ export default function AdminPage() {
 
   const [event, setEvent] = useState<EventData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("overview");
 
   // Form states
   const [teamName, setTeamName] = useState("");
   const [teamTable, setTeamTable] = useState("");
   const [teamProject, setTeamProject] = useState("");
-  const [teamDesc, setTeamDesc] = useState("");
   const [judgeName, setJudgeName] = useState("");
   const [critName, setCritName] = useState("");
-  const [critDesc, setCritDesc] = useState("");
   const [critMax, setCritMax] = useState("10");
   const [critWeight, setCritWeight] = useState("1");
   const [judgesPerTeam, setJudgesPerTeam] = useState("3");
@@ -103,7 +65,7 @@ export default function AdminPage() {
           name: teamName,
           tableNumber: teamTable,
           projectName: teamProject,
-          description: teamDesc,
+          description: "",
         }),
       });
       if (res.ok) {
@@ -111,7 +73,6 @@ export default function AdminPage() {
         setTeamName("");
         setTeamTable("");
         setTeamProject("");
-        setTeamDesc("");
         fetchEvent();
       } else {
         const data = await res.json();
@@ -179,7 +140,7 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: critName,
-          description: critDesc,
+          description: "",
           maxScore: Number(critMax),
           weight: Number(critWeight),
         }),
@@ -187,7 +148,6 @@ export default function AdminPage() {
       if (res.ok) {
         toast.success("Criterion added");
         setCritName("");
-        setCritDesc("");
         setCritMax("10");
         setCritWeight("1");
         fetchEvent();
@@ -248,35 +208,6 @@ export default function AdminPage() {
     }
   }
 
-  async function addSingleAssignment(judgeId: string, teamId: string) {
-    try {
-      const res = await fetch(`/api/assignments?${eq}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ judgeId, teamId }),
-      });
-      if (res.ok) {
-        toast.success("Assignment added");
-        fetchEvent();
-      } else {
-        const data = await res.json();
-        toast.error(data.error);
-      }
-    } catch {
-      toast.error("Failed to add assignment");
-    }
-  }
-
-  async function removeAssignment(id: string) {
-    try {
-      await fetch(`/api/assignments?${eq}&id=${id}`, { method: "DELETE" });
-      toast.success("Assignment removed");
-      fetchEvent();
-    } catch {
-      toast.error("Failed to remove assignment");
-    }
-  }
-
   function copyToClipboard(text: string, label: string) {
     navigator.clipboard.writeText(text);
     toast.success(`Copied: ${label}`);
@@ -288,10 +219,35 @@ export default function AdminPage() {
       : "";
   }
 
+  async function exportData(format: "csv" | "json") {
+    try {
+      const res = await fetch(
+        `/api/export?${eq}&format=${format}&pin=${encodeURIComponent(sessionStorage.getItem("adminPin") || "")}`,
+      );
+      if (!res.ok) {
+        toast.error("Export failed");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `event-${eventId}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Downloaded ${format.toUpperCase()}`);
+    } catch {
+      toast.error("Export error");
+    }
+  }
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-muted-foreground">Loading...</p>
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ background: "var(--bg)", color: "var(--muted-c)" }}
+      >
+        Loading...
       </div>
     );
   }
@@ -299,7 +255,7 @@ export default function AdminPage() {
   if (!event) return null;
 
   const completedAssignments = event.assignments.filter(
-    (a) => a.status === "completed"
+    (a) => a.status === "completed",
   ).length;
   const totalAssignments = event.assignments.length;
   const progressPercent =
@@ -307,813 +263,1041 @@ export default function AdminPage() {
       ? Math.round((completedAssignments / totalAssignments) * 100)
       : 0;
 
+  const sidebarItems = [
+    {
+      group: "Panels",
+      items: [
+        {
+          key: "overview",
+          label: "Overview",
+          badge: progressPercent === 100 ? "done" : "live",
+        },
+        { key: "teams", label: "Teams", badge: String(event.teams.length) },
+        { key: "judges", label: "Judges", badge: String(event.judges.length) },
+        {
+          key: "criteria",
+          label: "Criteria",
+          badge: String(event.criteria.length),
+        },
+        { key: "share", label: "Share", badge: null },
+      ],
+    },
+    {
+      group: "Export",
+      items: [
+        { key: "csv", label: "CSV \u2193", badge: null },
+        { key: "json", label: "JSON \u2193", badge: null },
+      ],
+    },
+    {
+      group: "Event",
+      items: [{ key: "new", label: "New event +", badge: null }],
+    },
+  ];
+
+  const tblStyle: React.CSSProperties = {
+    width: "100%",
+    borderCollapse: "collapse",
+  };
+  const thStyle: React.CSSProperties = {
+    fontSize: 10,
+    letterSpacing: "0.07em",
+    textTransform: "uppercase",
+    color: "var(--hint)",
+    textAlign: "left",
+    padding: "5px 8px",
+    borderBottom: "1px solid var(--border-c)",
+  };
+  const tdStyle: React.CSSProperties = {
+    padding: "9px 8px",
+    borderBottom: "1px solid rgba(42,42,47,.5)",
+    verticalAlign: "middle",
+    fontSize: 12,
+  };
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    background: "var(--s2)",
+    border: "1px solid var(--border-c)",
+    borderRadius: 8,
+    color: "var(--text-c)",
+    padding: "8px 11px",
+    fontSize: 13,
+    outline: "none",
+  };
+
+  function handleSideClick(key: string) {
+    if (key === "csv") {
+      exportData("csv");
+      return;
+    }
+    if (key === "json") {
+      exportData("json");
+      return;
+    }
+    if (key === "new") {
+      router.push("/create");
+      return;
+    }
+    setActiveTab(key);
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => router.push("/")}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <ClipboardList className="h-6 w-6 text-primary" />
-            <div>
-              <h1 className="font-bold">{event.name}</h1>
-              <p className="text-xs text-muted-foreground">
-                Admin Dashboard &middot; Event ID:{" "}
-                <code className="font-mono">{eventId}</code>
-              </p>
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ background: "var(--bg)" }}
+    >
+      {/* Top bar */}
+      <div
+        className="flex items-center justify-between px-6"
+        style={{
+          height: 50,
+          borderBottom: "1px solid var(--border-c)",
+          background: "var(--s1)",
+        }}
+      >
+        <span
+          className="font-serif text-[19px] font-extralight tracking-tight"
+          style={{ color: "var(--text-c)" }}
+        >
+          Judge<span className="text-lime font-normal">Kit</span>
+        </span>
+        <button
+          className="text-xs flex items-center gap-1 hover:opacity-80 transition-opacity"
+          style={{
+            color: "var(--muted-c)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+          }}
+          onClick={() => router.push("/")}
+        >
+          &larr; back
+        </button>
+      </div>
+
+      {/* Admin layout */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "196px 1fr",
+          gap: 12,
+          padding: "20px 24px 36px",
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        {/* Sidebar */}
+        <div
+          style={{
+            background: "var(--s1)",
+            border: "1px solid var(--border-c)",
+            borderRadius: 12,
+            padding: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            alignSelf: "start",
+          }}
+        >
+          <div
+            style={{
+              padding: "4px 8px 10px",
+              borderBottom: "1px solid var(--border-c)",
+              marginBottom: 4,
+            }}
+          >
+            <div style={{ fontSize: 12, color: "var(--text-c)" }}>
+              {event.name}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--hint)", marginTop: 1 }}>
+              Event &middot; active
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary">{event.teams.length} Teams</Badge>
-            <Badge variant="secondary">{event.judges.length} Judges</Badge>
-            <Badge variant={progressPercent === 100 ? "default" : "outline"}>
-              {progressPercent}% Complete
-            </Badge>
-          </div>
-        </div>
-      </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-6">
-        <Card className="mb-6">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-primary" />
-                <span className="font-medium">Judging Progress</span>
+          {sidebarItems.map((group) => (
+            <div key={group.group}>
+              <div
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  color: "var(--hint)",
+                  padding: "8px 8px 3px",
+                  marginTop: 2,
+                }}
+              >
+                {group.group}
               </div>
-              <span className="text-sm text-muted-foreground">
-                {completedAssignments} / {totalAssignments} evaluations complete
-              </span>
-            </div>
-            <Progress value={progressPercent} className="h-3" />
-          </CardContent>
-        </Card>
-
-        <Tabs defaultValue="teams" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-6">
-            <TabsTrigger value="teams" className="gap-1">
-              <Users className="h-4 w-4" />
-              Teams
-            </TabsTrigger>
-            <TabsTrigger value="judges" className="gap-1">
-              <Award className="h-4 w-4" />
-              Judges
-            </TabsTrigger>
-            <TabsTrigger value="criteria" className="gap-1">
-              <Target className="h-4 w-4" />
-              Criteria
-            </TabsTrigger>
-            <TabsTrigger value="assignments" className="gap-1">
-              <Shuffle className="h-4 w-4" />
-              Assignments
-            </TabsTrigger>
-            <TabsTrigger value="results" className="gap-1">
-              <Download className="h-4 w-4" />
-              Results
-            </TabsTrigger>
-            <TabsTrigger value="share" className="gap-1">
-              <Link className="h-4 w-4" />
-              Share
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="teams">
-            <div className="grid gap-4 lg:grid-cols-3">
-              <Card className="lg:col-span-1">
-                <CardHeader>
-                  <CardTitle className="text-lg">Add Team</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={addTeam} className="space-y-3">
-                    <div>
-                      <Label>Team Name</Label>
-                      <Input
-                        value={teamName}
-                        onChange={(e) => setTeamName(e.target.value)}
-                        placeholder="e.g. Team Alpha"
-                      />
-                    </div>
-                    <div>
-                      <Label>Table Number</Label>
-                      <Input
-                        value={teamTable}
-                        onChange={(e) => setTeamTable(e.target.value)}
-                        placeholder="e.g. 12"
-                      />
-                    </div>
-                    <div>
-                      <Label>Project Name</Label>
-                      <Input
-                        value={teamProject}
-                        onChange={(e) => setTeamProject(e.target.value)}
-                        placeholder="optional"
-                      />
-                    </div>
-                    <div>
-                      <Label>Description</Label>
-                      <Textarea
-                        value={teamDesc}
-                        onChange={(e) => setTeamDesc(e.target.value)}
-                        placeholder="optional"
-                        rows={2}
-                      />
-                    </div>
-                    <Button type="submit" className="w-full gap-2">
-                      <Plus className="h-4 w-4" /> Add Team
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-
-              <Card className="lg:col-span-2">
-                <CardHeader>
-                  <CardTitle className="text-lg">
-                    Teams ({event.teams.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {event.teams.length === 0 ? (
-                    <p className="text-muted-foreground text-sm text-center py-8">
-                      No teams yet. Add your first team.
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Table</TableHead>
-                          <TableHead>Team</TableHead>
-                          <TableHead>Project</TableHead>
-                          <TableHead className="w-12"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {event.teams.map((team: Team) => (
-                          <TableRow key={team.id}>
-                            <TableCell>
-                              <Badge variant="outline">
-                                {team.tableNumber}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-medium">
-                              {team.name}
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {team.projectName || "\u2014"}
-                            </TableCell>
-                            <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => deleteTeam(team.id)}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+              {group.items.map((item) => (
+                <div
+                  key={item.key}
+                  onClick={() => handleSideClick(item.key)}
+                  style={{
+                    padding: "7px 9px",
+                    borderRadius: 8,
+                    color:
+                      activeTab === item.key ? "#bff066" : "var(--muted-c)",
+                    fontSize: 12,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    background:
+                      activeTab === item.key
+                        ? "rgba(191,240,102,.1)"
+                        : "transparent",
+                    transition: "background .12s, color .12s",
+                  }}
+                >
+                  {item.label}
+                  {item.badge && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        background: "var(--s3)",
+                        padding: "1px 6px",
+                        borderRadius: 100,
+                        color: "var(--muted-c)",
+                      }}
+                    >
+                      {item.badge}
+                    </span>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              ))}
             </div>
-          </TabsContent>
+          ))}
+        </div>
 
-          <TabsContent value="judges">
-            <div className="grid gap-4 lg:grid-cols-3">
-              <Card className="lg:col-span-1">
-                <CardHeader>
-                  <CardTitle className="text-lg">Add Judge</CardTitle>
-                  <CardDescription>
-                    A unique 6-character access code is generated automatically.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={addJudge} className="space-y-3">
-                    <div>
-                      <Label>Judge Name</Label>
-                      <Input
-                        value={judgeName}
-                        onChange={(e) => setJudgeName(e.target.value)}
-                        placeholder="e.g. Dr. Smith"
-                      />
-                    </div>
-                    <Button type="submit" className="w-full gap-2">
-                      <Plus className="h-4 w-4" /> Add Judge
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-
-              <Card className="lg:col-span-2">
-                <CardHeader>
-                  <CardTitle className="text-lg">
-                    Judges ({event.judges.length})
-                  </CardTitle>
-                  <CardDescription>
-                    Share access codes or direct links with judges so they can
-                    log in.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {event.judges.length === 0 ? (
-                    <p className="text-muted-foreground text-sm text-center py-8">
-                      No judges yet. Add your first judge.
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Access Code</TableHead>
-                          <TableHead>Assigned</TableHead>
-                          <TableHead>Completed</TableHead>
-                          <TableHead className="w-12"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {event.judges.map((judge: Judge) => {
-                          const judgeAssignments = event.assignments.filter(
-                            (a) => a.judgeId === judge.id
-                          );
-                          const completed = judgeAssignments.filter(
-                            (a) => a.status === "completed"
-                          ).length;
-                          return (
-                            <TableRow key={judge.id}>
-                              <TableCell className="font-medium">
-                                {judge.name}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <code className="bg-muted px-2 py-1 rounded text-sm font-mono tracking-widest">
-                                    {judge.accessCode}
-                                  </code>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    onClick={() =>
-                                      copyToClipboard(
-                                        judge.accessCode,
-                                        judge.accessCode
-                                      )
-                                    }
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                {judgeAssignments.length}
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant={
-                                    completed === judgeAssignments.length &&
-                                    judgeAssignments.length > 0
-                                      ? "default"
-                                      : "secondary"
-                                  }
-                                >
-                                  {completed}/{judgeAssignments.length}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => deleteJudge(judge.id)}
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="criteria">
-            <div className="grid gap-4 lg:grid-cols-3">
-              <Card className="lg:col-span-1">
-                <CardHeader>
-                  <CardTitle className="text-lg">Add Criterion</CardTitle>
-                  <CardDescription>
-                    Define what judges will score teams on. Weights affect the
-                    final weighted average.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={addCriterion} className="space-y-3">
-                    <div>
-                      <Label>Name</Label>
-                      <Input
-                        value={critName}
-                        onChange={(e) => setCritName(e.target.value)}
-                        placeholder="e.g. Innovation"
-                      />
-                    </div>
-                    <div>
-                      <Label>Description</Label>
-                      <Textarea
-                        value={critDesc}
-                        onChange={(e) => setCritDesc(e.target.value)}
-                        placeholder="optional"
-                        rows={2}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label>Max Score</Label>
-                        <Input
-                          type="number"
-                          value={critMax}
-                          onChange={(e) => setCritMax(e.target.value)}
-                          min="1"
-                        />
+        {/* Main content */}
+        <div
+          style={{
+            background: "var(--s1)",
+            border: "1px solid var(--border-c)",
+            borderRadius: 12,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 440,
+          }}
+        >
+          {/* Overview */}
+          {activeTab === "overview" && (
+            <>
+              <div
+                style={{
+                  padding: "13px 16px",
+                  borderBottom: "1px solid var(--border-c)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <h2
+                  className="font-serif"
+                  style={{ fontSize: 17, fontWeight: 200 }}
+                >
+                  Overview
+                </h2>
+                <span className="pill pill-green">
+                  <span className="pill-dot" /> Active
+                </span>
+              </div>
+              <div
+                style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4,1fr)",
+                    gap: 8,
+                    marginBottom: 18,
+                  }}
+                >
+                  {[
+                    { n: event.teams.length, l: "Teams" },
+                    { n: event.judges.length, l: "Judges" },
+                    { n: `${progressPercent}%`, l: "Scored" },
+                    { n: event.criteria.length, l: "Criteria" },
+                  ].map((s) => (
+                    <div
+                      key={s.l}
+                      style={{
+                        background: "var(--s2)",
+                        borderRadius: 8,
+                        padding: "11px 12px",
+                      }}
+                    >
+                      <div
+                        className="font-serif"
+                        style={{
+                          fontSize: 26,
+                          fontWeight: 200,
+                          lineHeight: 1,
+                          marginBottom: 3,
+                        }}
+                      >
+                        {s.n}
                       </div>
-                      <div>
-                        <Label>Weight</Label>
-                        <Input
-                          type="number"
-                          value={critWeight}
-                          onChange={(e) => setCritWeight(e.target.value)}
-                          min="0.1"
-                          step="0.1"
-                        />
+                      <div style={{ fontSize: 11, color: "var(--muted-c)" }}>
+                        {s.l}
                       </div>
                     </div>
-                    <Button type="submit" className="w-full gap-2">
-                      <Plus className="h-4 w-4" /> Add Criterion
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
+                  ))}
+                </div>
 
-              <Card className="lg:col-span-2">
-                <CardHeader>
-                  <CardTitle className="text-lg">
-                    Scoring Criteria ({event.criteria.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {event.criteria.length === 0 ? (
-                    <p className="text-muted-foreground text-sm text-center py-8">
-                      No criteria yet. Add scoring criteria before judging
-                      begins.
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Description</TableHead>
-                          <TableHead>Max Score</TableHead>
-                          <TableHead>Weight</TableHead>
-                          <TableHead className="w-12"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {event.criteria.map((criterion: Criterion) => (
-                          <TableRow key={criterion.id}>
-                            <TableCell className="font-medium">
-                              {criterion.name}
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {criterion.description || "\u2014"}
-                            </TableCell>
-                            <TableCell>{criterion.maxScore}</TableCell>
-                            <TableCell>{criterion.weight}x</TableCell>
-                            <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => deleteCriterion(criterion.id)}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="assignments">
-            <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Auto-Assign Judges</CardTitle>
-                  <CardDescription>
-                    Automatically distribute judges evenly across teams. Existing
-                    assignments are preserved.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-end gap-4">
-                    <div className="w-48">
-                      <Label>Judges per Team</Label>
-                      <Input
-                        type="number"
-                        value={judgesPerTeam}
-                        onChange={(e) => setJudgesPerTeam(e.target.value)}
-                        min="1"
-                        max={String(event.judges.length)}
-                      />
-                    </div>
-                    <Button onClick={autoAssign} className="gap-2">
-                      <Shuffle className="h-4 w-4" /> Auto-Assign
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      onClick={clearAssignments}
-                      disabled={event.assignments.length === 0}
-                    >
-                      Clear All
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Assignment Matrix</CardTitle>
-                  <CardDescription>
-                    Click cells to toggle judge-team assignments.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="overflow-x-auto">
-                  {event.teams.length === 0 || event.judges.length === 0 ? (
-                    <p className="text-muted-foreground text-sm text-center py-8">
-                      Add teams and judges first to create assignments.
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="sticky left-0 bg-white z-10">
-                            Judge / Team
-                          </TableHead>
-                          {event.teams.map((team: Team) => (
-                            <TableHead
-                              key={team.id}
-                              className="text-center whitespace-nowrap"
-                            >
-                              <div className="flex flex-col items-center">
-                                <Badge variant="outline" className="mb-1">
-                                  #{team.tableNumber}
-                                </Badge>
-                                <span className="text-xs">{team.name}</span>
-                              </div>
-                            </TableHead>
-                          ))}
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {event.judges.map((judge: Judge) => (
-                          <TableRow key={judge.id}>
-                            <TableCell className="font-medium sticky left-0 bg-white z-10">
-                              {judge.name}
-                            </TableCell>
-                            {event.teams.map((team: Team) => {
-                              const assignment = event.assignments.find(
-                                (a) =>
-                                  a.judgeId === judge.id &&
-                                  a.teamId === team.id
-                              );
-                              return (
-                                <TableCell
-                                  key={team.id}
-                                  className="text-center"
-                                >
-                                  {assignment ? (
-                                    <Button
-                                      size="sm"
-                                      variant={
-                                        assignment.status === "completed"
-                                          ? "default"
-                                          : assignment.status === "in_progress"
-                                          ? "secondary"
-                                          : "outline"
-                                      }
-                                      className={
-                                        assignment.status === "completed"
-                                          ? "bg-green-600 hover:bg-green-700"
-                                          : assignment.status === "in_progress"
-                                          ? "bg-yellow-100 border-yellow-300 text-yellow-800"
-                                          : "bg-blue-50 border-blue-200 text-blue-700"
-                                      }
-                                      onClick={() =>
-                                        removeAssignment(assignment.id)
-                                      }
-                                    >
-                                      {assignment.status === "completed"
-                                        ? "Done"
-                                        : assignment.status === "in_progress"
-                                        ? "Active"
-                                        : "Pending"}
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="text-muted-foreground"
-                                      onClick={() =>
-                                        addSingleAssignment(
-                                          judge.id,
-                                          team.id
-                                        )
-                                      }
-                                    >
-                                      +
-                                    </Button>
-                                  )}
-                                </TableCell>
-                              );
-                            })}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="results">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Export Results</CardTitle>
-                <CardDescription>
-                  Download all scores and data. CSV works in Excel/Sheets.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex gap-3">
-                  <Button
-                    onClick={() => {
-                      window.open(
-                        `/api/export?${eq}&format=csv`,
-                        "_blank"
-                      );
+                {/* Auto-assign controls */}
+                {event.judges.length > 0 && event.teams.length > 0 && (
+                  <div
+                    style={{
+                      background: "var(--s2)",
+                      borderRadius: 8,
+                      padding: "12px 14px",
+                      marginBottom: 18,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
                     }}
-                    className="gap-2"
                   >
-                    <Download className="h-4 w-4" /> Download CSV
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      window.open(
-                        `/api/export?${eq}&format=json`,
-                        "_blank"
-                      );
-                    }}
-                    className="gap-2"
-                  >
-                    <Download className="h-4 w-4" /> Download JSON
-                  </Button>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-medium mb-3">Team Rankings</h3>
-                  {event.teams.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">
-                      No teams to rank yet.
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Rank</TableHead>
-                          <TableHead>Team</TableHead>
-                          <TableHead>Table</TableHead>
-                          <TableHead>Avg Score</TableHead>
-                          <TableHead>Evaluations</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {event.teams
-                          .map((team: Team) => {
-                            const teamAssignments = event.assignments.filter(
-                              (a) =>
-                                a.teamId === team.id &&
-                                a.status === "completed"
-                            );
-                            let avgScore = 0;
-                            if (teamAssignments.length > 0) {
-                              const totals = teamAssignments.map((a) => {
-                                let weightedSum = 0;
-                                let totalWeight = 0;
-                                for (const c of event.criteria) {
-                                  const s = a.scores.find(
-                                    (sc) => sc.criterionId === c.id
-                                  );
-                                  if (s) {
-                                    weightedSum +=
-                                      (s.value / c.maxScore) * c.weight;
-                                    totalWeight += c.weight;
-                                  }
-                                }
-                                return totalWeight > 0
-                                  ? (weightedSum / totalWeight) * 100
-                                  : 0;
-                              });
-                              avgScore =
-                                totals.reduce((a, b) => a + b, 0) /
-                                totals.length;
-                            }
-                            return {
-                              team,
-                              avgScore,
-                              count: teamAssignments.length,
-                            };
-                          })
-                          .sort((a, b) => b.avgScore - a.avgScore)
-                          .map((item, index) => (
-                            <TableRow key={item.team.id}>
-                              <TableCell>
-                                <Badge
-                                  variant={
-                                    index < 3 ? "default" : "secondary"
-                                  }
-                                >
-                                  #{index + 1}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="font-medium">
-                                {item.team.name}
-                              </TableCell>
-                              <TableCell>{item.team.tableNumber}</TableCell>
-                              <TableCell>
-                                {item.avgScore > 0
-                                  ? `${item.avgScore.toFixed(1)}%`
-                                  : "\u2014"}
-                              </TableCell>
-                              <TableCell>{item.count}</TableCell>
-                            </TableRow>
-                          ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="share">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Link className="h-5 w-5" /> Shareable Links
-                </CardTitle>
-                <CardDescription>
-                  Share these links with judges and teams so they can access the
-                  event directly.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div>
-                  <Label className="text-sm font-medium">Event ID</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <code className="bg-muted px-3 py-2 rounded font-mono text-sm flex-1">
-                      {eventId}
-                    </code>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => copyToClipboard(eventId, "Event ID")}
-                      className="gap-1"
+                    <span style={{ fontSize: 12, color: "var(--muted-c)" }}>
+                      Judges per team:
+                    </span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={judgesPerTeam}
+                      onChange={(e) => setJudgesPerTeam(e.target.value)}
+                      style={{
+                        width: 50,
+                        background: "var(--s3)",
+                        border: "1px solid var(--border-c)",
+                        borderRadius: 6,
+                        color: "var(--text-c)",
+                        padding: "4px 8px",
+                        fontSize: 12,
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      onClick={autoAssign}
+                      style={{
+                        background: "#bff066",
+                        color: "#0c0c0d",
+                        border: "none",
+                        borderRadius: 8,
+                        padding: "4px 10px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                      }}
                     >
-                      <Copy className="h-3 w-3" /> Copy
-                    </Button>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <Label className="text-sm font-medium">Admin Link</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <code className="bg-muted px-3 py-2 rounded font-mono text-xs flex-1 truncate">
-                      {getBaseUrl()}/event/{eventId}/admin
-                    </code>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        copyToClipboard(
-                          `${getBaseUrl()}/event/${eventId}/admin`,
-                          "Admin link"
-                        )
-                      }
-                      className="gap-1"
-                    >
-                      <Copy className="h-3 w-3" /> Copy
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Requires admin PIN to access.
-                  </p>
-                </div>
-
-                <Separator />
-
-                {event.judges.length > 0 && (
-                  <div>
-                    <Label className="text-sm font-medium">Judge Links</Label>
-                    <div className="space-y-2 mt-2">
-                      {event.judges.map((judge: Judge) => (
-                        <div
-                          key={judge.id}
-                          className="flex items-center gap-2"
-                        >
-                          <span className="text-sm w-32 truncate">
-                            {judge.name}
-                          </span>
-                          <code className="bg-muted px-2 py-1 rounded font-mono text-xs flex-1 truncate">
-                            {getBaseUrl()}/event/{eventId}/judge/
-                            {judge.accessCode}
-                          </code>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0"
-                            onClick={() =>
-                              copyToClipboard(
-                                `${getBaseUrl()}/event/${eventId}/judge/${judge.accessCode}`,
-                                `${judge.name}'s link`
-                              )
-                            }
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
+                      Auto-assign
+                    </button>
+                    {event.assignments.length > 0 && (
+                      <button
+                        onClick={clearAssignments}
+                        style={{
+                          background: "none",
+                          border: "1px solid var(--border-c)",
+                          borderRadius: 8,
+                          padding: "4px 10px",
+                          fontSize: 11,
+                          color: "var(--muted-c)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Clear all
+                      </button>
+                    )}
                   </div>
                 )}
 
-                {event.teams.length > 0 && (
-                  <>
-                    <Separator />
-                    <div>
-                      <Label className="text-sm font-medium">Team Links</Label>
-                      <div className="space-y-2 mt-2">
-                        {event.teams.map((team: Team) => (
-                          <div
-                            key={team.id}
-                            className="flex items-center gap-2"
-                          >
-                            <span className="text-sm w-32 truncate">
-                              #{team.tableNumber} {team.name}
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                  }}
+                >
+                  Judge progress
+                </div>
+                <table style={tblStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Judge</th>
+                      <th style={thStyle}>Code</th>
+                      <th style={thStyle}>Done</th>
+                      <th style={thStyle}>Progress</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {event.judges.map((judge: Judge) => {
+                      const ja = event.assignments.filter(
+                        (a) => a.judgeId === judge.id,
+                      );
+                      const done = ja.filter(
+                        (a) => a.status === "completed",
+                      ).length;
+                      const pct =
+                        ja.length > 0
+                          ? Math.round((done / ja.length) * 100)
+                          : 0;
+                      return (
+                        <tr key={judge.id}>
+                          <td style={tdStyle}>{judge.name}</td>
+                          <td style={tdStyle}>
+                            <span className="code-chip">
+                              {judge.accessCode}
                             </span>
-                            <code className="bg-muted px-2 py-1 rounded font-mono text-xs flex-1 truncate">
-                              {getBaseUrl()}/event/{eventId}/team/
-                              {team.tableNumber}
-                            </code>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 shrink-0"
+                          </td>
+                          <td style={tdStyle}>
+                            {done}/{ja.length}
+                          </td>
+                          <td style={tdStyle}>
+                            <div className="pbar">
+                              <div
+                                className={`pfill ${pct === 100 ? "pfill-l" : "pfill-a"}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {event.judges.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          style={{
+                            ...tdStyle,
+                            textAlign: "center",
+                            color: "var(--hint)",
+                          }}
+                        >
+                          No judges yet
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* Teams */}
+          {activeTab === "teams" && (
+            <>
+              <div
+                style={{
+                  padding: "13px 16px",
+                  borderBottom: "1px solid var(--border-c)",
+                }}
+              >
+                <h2
+                  className="font-serif"
+                  style={{ fontSize: 17, fontWeight: 200 }}
+                >
+                  Teams
+                </h2>
+              </div>
+              <div
+                style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
+              >
+                <form
+                  onSubmit={addTeam}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 80px 1fr auto",
+                    gap: 8,
+                    marginBottom: 16,
+                    alignItems: "end",
+                  }}
+                >
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: "var(--hint)",
+                        marginBottom: 4,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      Name
+                    </label>
+                    <input
+                      style={inputStyle}
+                      placeholder="Team name"
+                      value={teamName}
+                      onChange={(e) => setTeamName(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: "var(--hint)",
+                        marginBottom: 4,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      Table #
+                    </label>
+                    <input
+                      style={inputStyle}
+                      placeholder="T01"
+                      value={teamTable}
+                      onChange={(e) => setTeamTable(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: "var(--hint)",
+                        marginBottom: 4,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      Project
+                    </label>
+                    <input
+                      style={inputStyle}
+                      placeholder="Project name"
+                      value={teamProject}
+                      onChange={(e) => setTeamProject(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    style={{
+                      background: "#bff066",
+                      border: "none",
+                      borderRadius: 8,
+                      color: "#0c0c0d",
+                      padding: "8px 12px",
+                      fontSize: 11,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    + Add
+                  </button>
+                </form>
+
+                <table style={tblStyle}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...thStyle, width: 44 }}>#</th>
+                      <th style={thStyle}>Team</th>
+                      <th style={thStyle}>Project</th>
+                      <th style={thStyle}>Status</th>
+                      <th style={{ ...thStyle, width: 32 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {event.teams.map((team: Team) => {
+                      const ta = event.assignments.filter(
+                        (a) => a.teamId === team.id,
+                      );
+                      const allDone =
+                        ta.length > 0 &&
+                        ta.every((a) => a.status === "completed");
+                      const anyStarted = ta.some(
+                        (a) => a.status !== "pending",
+                      );
+                      return (
+                        <tr key={team.id}>
+                          <td style={{ ...tdStyle, color: "var(--hint)" }}>
+                            {team.tableNumber}
+                          </td>
+                          <td style={tdStyle}>{team.name}</td>
+                          <td style={tdStyle}>
+                            {team.projectName || "\u2014"}
+                          </td>
+                          <td style={tdStyle}>
+                            {allDone ? (
+                              <span className="pill pill-green">
+                                <span className="pill-dot" /> Scored
+                              </span>
+                            ) : anyStarted ? (
+                              <span className="pill pill-amber">
+                                <span className="pill-dot" /> Pending
+                              </span>
+                            ) : (
+                              <span className="pill pill-gray">
+                                <span className="pill-dot" /> Unstarted
+                              </span>
+                            )}
+                          </td>
+                          <td style={tdStyle}>
+                            <button
+                              onClick={() => deleteTeam(team.id)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: "var(--hint)",
+                                cursor: "pointer",
+                                fontSize: 13,
+                              }}
+                            >
+                              &times;
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {event.teams.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          style={{
+                            ...tdStyle,
+                            textAlign: "center",
+                            color: "var(--hint)",
+                          }}
+                        >
+                          No teams yet
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* Judges */}
+          {activeTab === "judges" && (
+            <>
+              <div
+                style={{
+                  padding: "13px 16px",
+                  borderBottom: "1px solid var(--border-c)",
+                }}
+              >
+                <h2
+                  className="font-serif"
+                  style={{ fontSize: 17, fontWeight: 200 }}
+                >
+                  Judges
+                </h2>
+              </div>
+              <div
+                style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
+              >
+                <form
+                  onSubmit={addJudge}
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    marginBottom: 16,
+                    alignItems: "end",
+                  }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: "var(--hint)",
+                        marginBottom: 4,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      Name
+                    </label>
+                    <input
+                      style={inputStyle}
+                      placeholder="Judge name"
+                      value={judgeName}
+                      onChange={(e) => setJudgeName(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    style={{
+                      background: "#bff066",
+                      border: "none",
+                      borderRadius: 8,
+                      color: "#0c0c0d",
+                      padding: "8px 12px",
+                      fontSize: 11,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    + Add judge
+                  </button>
+                </form>
+
+                <table style={tblStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Name</th>
+                      <th style={thStyle}>Code</th>
+                      <th style={thStyle}>Assigned</th>
+                      <th style={{ ...thStyle, width: 32 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {event.judges.map((judge: Judge) => {
+                      const ja = event.assignments.filter(
+                        (a) => a.judgeId === judge.id,
+                      );
+                      return (
+                        <tr key={judge.id}>
+                          <td style={tdStyle}>{judge.name}</td>
+                          <td style={tdStyle}>
+                            <span
+                              className="code-chip"
+                              style={{ cursor: "pointer" }}
                               onClick={() =>
                                 copyToClipboard(
-                                  `${getBaseUrl()}/event/${eventId}/team/${team.tableNumber}`,
-                                  `Table ${team.tableNumber} link`
+                                  judge.accessCode,
+                                  judge.accessCode,
                                 )
                               }
                             >
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
+                              {judge.accessCode}
+                            </span>
+                          </td>
+                          <td style={tdStyle}>{ja.length} teams</td>
+                          <td style={tdStyle}>
+                            <button
+                              onClick={() => deleteJudge(judge.id)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: "var(--hint)",
+                                cursor: "pointer",
+                                fontSize: 13,
+                              }}
+                            >
+                              &times;
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {event.judges.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          style={{
+                            ...tdStyle,
+                            textAlign: "center",
+                            color: "var(--hint)",
+                          }}
+                        >
+                          No judges yet
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* Criteria */}
+          {activeTab === "criteria" && (
+            <>
+              <div
+                style={{
+                  padding: "13px 16px",
+                  borderBottom: "1px solid var(--border-c)",
+                }}
+              >
+                <h2
+                  className="font-serif"
+                  style={{ fontSize: 17, fontWeight: 200 }}
+                >
+                  Criteria
+                </h2>
+              </div>
+              <div
+                style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
+              >
+                <form
+                  onSubmit={addCriterion}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 72px 72px auto",
+                    gap: 8,
+                    marginBottom: 16,
+                    alignItems: "end",
+                  }}
+                >
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: "var(--hint)",
+                        marginBottom: 4,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      Name
+                    </label>
+                    <input
+                      style={inputStyle}
+                      placeholder="Criterion"
+                      value={critName}
+                      onChange={(e) => setCritName(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: "var(--hint)",
+                        marginBottom: 4,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      Max
+                    </label>
+                    <input
+                      type="number"
+                      style={inputStyle}
+                      value={critMax}
+                      onChange={(e) => setCritMax(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: "var(--hint)",
+                        marginBottom: 4,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      Weight
+                    </label>
+                    <input
+                      type="number"
+                      style={inputStyle}
+                      value={critWeight}
+                      onChange={(e) => setCritWeight(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    style={{
+                      background: "#bff066",
+                      border: "none",
+                      borderRadius: 8,
+                      color: "#0c0c0d",
+                      padding: "8px 12px",
+                      fontSize: 11,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    + Add
+                  </button>
+                </form>
+
+                <table style={tblStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Criterion</th>
+                      <th style={thStyle}>Max</th>
+                      <th style={thStyle}>Weight</th>
+                      <th style={{ ...thStyle, width: 32 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {event.criteria.map((c: Criterion) => (
+                      <tr key={c.id}>
+                        <td style={tdStyle}>{c.name}</td>
+                        <td style={tdStyle}>{c.maxScore}</td>
+                        <td style={tdStyle}>{c.weight}%</td>
+                        <td style={tdStyle}>
+                          <button
+                            onClick={() => deleteCriterion(c.id)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "var(--hint)",
+                              cursor: "pointer",
+                              fontSize: 13,
+                            }}
+                          >
+                            &times;
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {event.criteria.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          style={{
+                            ...tdStyle,
+                            textAlign: "center",
+                            color: "var(--hint)",
+                          }}
+                        >
+                          No criteria yet
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* Share */}
+          {activeTab === "share" && (
+            <>
+              <div
+                style={{
+                  padding: "13px 16px",
+                  borderBottom: "1px solid var(--border-c)",
+                }}
+              >
+                <h2
+                  className="font-serif"
+                  style={{ fontSize: 17, fontWeight: 200 }}
+                >
+                  Share Links
+                </h2>
+              </div>
+              <div
+                style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                  }}
+                >
+                  Judge links
+                </div>
+                {event.judges.map((judge: Judge) => (
+                  <div
+                    key={judge.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "8px 0",
+                      borderBottom: "1px solid rgba(42,42,47,.5)",
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: 12 }}>{judge.name}</span>
+                      <span className="code-chip" style={{ marginLeft: 8 }}>
+                        {judge.accessCode}
+                      </span>
                     </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </main>
+                    <button
+                      onClick={() =>
+                        copyToClipboard(
+                          `${getBaseUrl()}/event/${eventId}/judge/${judge.accessCode}`,
+                          `${judge.name} link`,
+                        )
+                      }
+                      style={{
+                        background: "none",
+                        border: "1px solid var(--border-c)",
+                        borderRadius: 8,
+                        color: "var(--muted-c)",
+                        padding: "4px 10px",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Copy link
+                    </button>
+                  </div>
+                ))}
+
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--hint)",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginBottom: 9,
+                    marginTop: 20,
+                  }}
+                >
+                  Team links
+                </div>
+                {event.teams.map((team: Team) => (
+                  <div
+                    key={team.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "8px 0",
+                      borderBottom: "1px solid rgba(42,42,47,.5)",
+                    }}
+                  >
+                    <div>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: "var(--hint)",
+                          marginRight: 8,
+                        }}
+                      >
+                        {team.tableNumber}
+                      </span>
+                      <span style={{ fontSize: 12 }}>{team.name}</span>
+                    </div>
+                    <button
+                      onClick={() =>
+                        copyToClipboard(
+                          `${getBaseUrl()}/event/${eventId}/team/${team.tableNumber}`,
+                          `${team.name} link`,
+                        )
+                      }
+                      style={{
+                        background: "none",
+                        border: "1px solid var(--border-c)",
+                        borderRadius: 8,
+                        color: "var(--muted-c)",
+                        padding: "4px 10px",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Copy link
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

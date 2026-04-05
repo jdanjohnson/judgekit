@@ -43,6 +43,12 @@ export async function deleteEvent(eventId: string): Promise<void> {
   await redis.del(`event:${eventId}`);
 }
 
+export async function getAllEventIds(): Promise<string[]> {
+  const redis = getRedis();
+  const keys = await redis.keys("event:*");
+  return keys.map((k) => k.replace("event:", ""));
+}
+
 export function generateEventId(): string {
   const chars = "abcdefghjkmnpqrstuvwxyz23456789";
   let id = "";
