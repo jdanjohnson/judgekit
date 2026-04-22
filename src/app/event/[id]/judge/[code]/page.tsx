@@ -18,7 +18,7 @@ export default function JudgePortal() {
   const [scores, setScores] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
-  const [timerNow, setTimerNow] = useState(0);
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const eq = `eventId=${encodeURIComponent(eventId)}`;
@@ -132,7 +132,10 @@ export default function JudgePortal() {
         await fetchEvent();
         if (complete) setOpenTeam(null);
       } else {
-        toast.error("Failed to save");
+        const data = await res.json().catch(() => null);
+        const msg = data?.error ?? "Failed to save";
+        toast.error(msg);
+        await fetchEvent();
       }
     } catch {
       toast.error("Connection error");

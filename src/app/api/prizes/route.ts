@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateEvent } from "@/lib/store";
-import { Team } from "@/lib/types";
+import { Prize } from "@/lib/types";
 import { v4 as uuidv4 } from "uuid";
 
 export async function POST(req: NextRequest) {
@@ -15,33 +15,34 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, tableNumber, projectName, description } = body;
+  const { name, sponsor, description } = body;
 
-  if (!name || !tableNumber) {
+  if (!name) {
     return NextResponse.json(
-      { error: "name and tableNumber are required" },
+      { error: "name is required" },
       { status: 400 }
     );
   }
 
-  const team: Team = {
+  const prize: Prize = {
     id: uuidv4(),
     name,
-    tableNumber,
-    projectName: projectName || "",
+    sponsor: sponsor || "",
     description: description || "",
+    teamIds: [],
+    judgeIds: [],
   };
 
   const updated = await updateEvent(eventId, (event) => ({
     ...event,
-    teams: [...event.teams, team],
+    prizes: [...(event.prizes ?? []), prize],
   }));
 
   if (!updated) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
 
-  return NextResponse.json(team, { status: 201 });
+  return NextResponse.json(prize, { status: 201 });
 }
 
 export async function PUT(req: NextRequest) {
@@ -56,32 +57,55 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { id, name, tableNumber, projectName, description } = body;
+  const { id, name, sponsor, description, teamIds, judgeIds } = body;
 
   if (!id) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  const updated = await updateEvent(eventId, (event) => ({
-    ...event,
-    teams: event.teams.map((t) =>
-      t.id === id
-        ? {
-            ...t,
-            name: name ?? t.name,
-            tableNumber: tableNumber ?? t.tableNumber,
-            projectName: projectName ?? t.projectName,
-            description: description ?? t.description,
-          }
-        : t
-    ),
-  }));
+  const updated = await updateEvent(eventId, (event) => {
+    const validTeamIds = new Set(event.teams.map((t) => t.id));
+    const validJudgeIds = new Set(event.judges.map((j) => j.id));
+    const cleanStrArr = (xs: unknown, valid: Set<string>): string[] => {
+      if (!Array.isArray(xs)) return [];
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const x of xs) {
+        if (typeof x === "string" && valid.has(x) && !seen.has(x)) {
+          seen.add(x);
+          out.push(x);
+        }
+      }
+      return out;
+    };
+    return {
+      ...event,
+      prizes: (event.prizes ?? []).map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              name: name ?? p.name,
+              sponsor: sponsor ?? p.sponsor,
+              description: description ?? p.description,
+              teamIds:
+                teamIds !== undefined
+                  ? cleanStrArr(teamIds, validTeamIds)
+                  : p.teamIds,
+              judgeIds:
+                judgeIds !== undefined
+                  ? cleanStrArr(judgeIds, validJudgeIds)
+                  : p.judgeIds,
+            }
+          : p
+      ),
+    };
+  });
 
   if (!updated) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
 
-  return NextResponse.json(updated.teams.find((t) => t.id === id));
+  return NextResponse.json(updated.prizes.find((p) => p.id === id));
 }
 
 export async function DELETE(req: NextRequest) {
@@ -102,12 +126,7 @@ export async function DELETE(req: NextRequest) {
 
   const updated = await updateEvent(eventId, (event) => ({
     ...event,
-    teams: event.teams.filter((t) => t.id !== id),
-    assignments: event.assignments.filter((a) => a.teamId !== id),
-    prizes: (event.prizes ?? []).map((p) => ({
-      ...p,
-      teamIds: p.teamIds.filter((tid) => tid !== id),
-    })),
+    prizes: (event.prizes ?? []).filter((p) => p.id !== id),
   }));
 
   if (!updated) {

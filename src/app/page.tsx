@@ -376,7 +376,7 @@ export default function HomePage() {
                 cursor: "pointer",
                 fontSize: 10,
               }}
-              onClick={() => router.push("/admin")}
+              onClick={() => setShowPin(true)}
             >
               admin panel
             </button>

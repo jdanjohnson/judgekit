@@ -20,6 +20,10 @@ export async function POST(req: NextRequest) {
     return handleAutoAssign(eventId, body.judgesPerTeam || 3);
   }
 
+  if (body.autoAssignPrize) {
+    return handleAutoAssignPrize(eventId, body.autoAssignPrize);
+  }
+
   const { judgeId, teamId } = body;
   if (!judgeId || !teamId) {
     return NextResponse.json(
@@ -119,6 +123,75 @@ async function handleAutoAssign(eventId: string, judgesPerTeam: number) {
       newAssignments.push(assignment);
       judgeLoad[judge.id] = (judgeLoad[judge.id] || 0) + 1;
     }
+  }
+
+  const updated = await updateEvent(eventId, (ev) => ({
+    ...ev,
+    assignments: [...ev.assignments, ...newAssignments],
+  }));
+
+  if (!updated) {
+    return NextResponse.json({ error: "No event found" }, { status: 404 });
+  }
+
+  return NextResponse.json(
+    { created: newAssignments.length, assignments: updated.assignments },
+    { status: 201 }
+  );
+}
+
+async function handleAutoAssignPrize(eventId: string, prizeId: string) {
+  const event = await getEvent(eventId);
+  if (!event) {
+    return NextResponse.json({ error: "No event found" }, { status: 404 });
+  }
+
+  const prize = (event.prizes ?? []).find((p) => p.id === prizeId);
+  if (!prize) {
+    return NextResponse.json({ error: "Prize not found" }, { status: 404 });
+  }
+
+  if (prize.judgeIds.length === 0 || prize.teamIds.length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Prize needs at least one opted-in team and one assigned judge before auto-assigning.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const validTeamIds = new Set(event.teams.map((t) => t.id));
+  const validJudgeIds = new Set(event.judges.map((j) => j.id));
+  const teamIds = prize.teamIds.filter((id) => validTeamIds.has(id));
+  const judgeIds = prize.judgeIds.filter((id) => validJudgeIds.has(id));
+
+  const existingPairs = new Set(
+    event.assignments.map((a) => `${a.judgeId}::${a.teamId}`)
+  );
+
+  const newAssignments: Assignment[] = [];
+  for (const judgeId of judgeIds) {
+    for (const teamId of teamIds) {
+      const key = `${judgeId}::${teamId}`;
+      if (existingPairs.has(key)) continue;
+      existingPairs.add(key);
+      newAssignments.push({
+        id: uuidv4(),
+        judgeId,
+        teamId,
+        scores: [],
+        notes: "",
+        status: "pending",
+      });
+    }
+  }
+
+  if (newAssignments.length === 0) {
+    return NextResponse.json(
+      { created: 0, assignments: event.assignments },
+      { status: 200 }
+    );
   }
 
   const updated = await updateEvent(eventId, (ev) => ({

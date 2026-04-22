@@ -104,6 +104,10 @@ export async function DELETE(req: NextRequest) {
     ...event,
     judges: event.judges.filter((j) => j.id !== id),
     assignments: event.assignments.filter((a) => a.judgeId !== id),
+    prizes: (event.prizes ?? []).map((p) => ({
+      ...p,
+      judgeIds: p.judgeIds.filter((jid) => jid !== id),
+    })),
   }));
 
   if (!updated) {
