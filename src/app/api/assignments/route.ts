@@ -145,47 +145,45 @@ async function handleAutoAssignPrize(eventId: string, prizeId: string) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
 
-  const precheckPrize = (precheck.prizes ?? []).find((p) => p.id === prizeId);
-  if (!precheckPrize) {
+  const prize = (precheck.prizes ?? []).find((p) => p.id === prizeId);
+  if (!prize) {
     return NextResponse.json({ error: "Prize not found" }, { status: 404 });
   }
 
-  let errorResponse: NextResponse | null = null;
+  const validTeamIds = new Set(precheck.teams.map((t) => t.id));
+  const validJudgeIds = new Set(precheck.judges.map((j) => j.id));
+  const teamIds = prize.teamIds.filter((id) => validTeamIds.has(id));
+  const judgeIds = prize.judgeIds.filter((id) => validJudgeIds.has(id));
+
+  if (judgeIds.length === 0 || teamIds.length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Prize needs at least one opted-in team and one assigned judge before auto-assigning.",
+      },
+      { status: 400 }
+    );
+  }
+
   let createdCount = 0;
-
   const updated = await updateEvent(eventId, (ev) => {
-    const prize = (ev.prizes ?? []).find((p) => p.id === prizeId);
-    if (!prize) {
-      errorResponse = NextResponse.json(
-        { error: "Prize not found" },
-        { status: 404 }
-      );
-      return ev;
-    }
-
-    const validTeamIds = new Set(ev.teams.map((t) => t.id));
-    const validJudgeIds = new Set(ev.judges.map((j) => j.id));
-    const teamIds = prize.teamIds.filter((id) => validTeamIds.has(id));
-    const judgeIds = prize.judgeIds.filter((id) => validJudgeIds.has(id));
-
-    if (judgeIds.length === 0 || teamIds.length === 0) {
-      errorResponse = NextResponse.json(
-        {
-          error:
-            "Prize needs at least one opted-in team and one assigned judge before auto-assigning.",
-        },
-        { status: 400 }
-      );
-      return ev;
-    }
+    // Re-filter against the fresh snapshot to stay correct under concurrent
+    // judge/team deletions, and re-check existing pairs to close the TOCTOU.
+    const freshValidTeamIds = new Set(ev.teams.map((t) => t.id));
+    const freshValidJudgeIds = new Set(ev.judges.map((j) => j.id));
+    const freshPrize = (ev.prizes ?? []).find((p) => p.id === prizeId);
+    const freshTeamIds =
+      freshPrize?.teamIds.filter((id) => freshValidTeamIds.has(id)) ?? [];
+    const freshJudgeIds =
+      freshPrize?.judgeIds.filter((id) => freshValidJudgeIds.has(id)) ?? [];
 
     const existingPairs = new Set(
       ev.assignments.map((a) => `${a.judgeId}::${a.teamId}`)
     );
 
     const toAdd: Assignment[] = [];
-    for (const judgeId of judgeIds) {
-      for (const teamId of teamIds) {
+    for (const judgeId of freshJudgeIds) {
+      for (const teamId of freshTeamIds) {
         const key = `${judgeId}::${teamId}`;
         if (existingPairs.has(key)) continue;
         existingPairs.add(key);
@@ -207,8 +205,6 @@ async function handleAutoAssignPrize(eventId: string, prizeId: string) {
       assignments: [...ev.assignments, ...toAdd],
     };
   });
-
-  if (errorResponse) return errorResponse;
 
   if (!updated) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
