@@ -398,6 +398,43 @@ export default function AdminPage() {
     }
   }
 
+  async function rebalanceAssignments() {
+    if (!event) return;
+    const pendingGeneral = event.assignments.filter((a) => {
+      if (a.status !== "pending") return false;
+      const prizePair = (event.prizes ?? []).some(
+        (p) => p.judgeIds.includes(a.judgeId) && p.teamIds.includes(a.teamId),
+      );
+      return !prizePair;
+    }).length;
+    const msg =
+      pendingGeneral === 0
+        ? "Rebalance will fill any gaps without redistributing existing work. Continue?"
+        : `Rebalance will redistribute ${pendingGeneral} pending general-pool assignment${pendingGeneral === 1 ? "" : "s"} to even out judge load. Scored + prize-scoped assignments are preserved. Continue?`;
+    if (!confirm(msg)) return;
+    try {
+      const res = await fetch(`/api/assignments?${eq}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rebalance: true,
+          judgesPerTeam: Number(judgesPerTeam) || 3,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(
+          `Rebalanced \u2014 kept ${data.kept}, removed ${data.removed}, created ${data.created}`,
+        );
+        fetchEvent();
+      } else {
+        toast.error(data.error || "Rebalance failed");
+      }
+    } catch {
+      toast.error("Rebalance failed");
+    }
+  }
+
   async function clearAssignments() {
     if (!event) return;
     try {
@@ -1169,6 +1206,23 @@ export default function AdminPage() {
                     >
                       Auto-assign
                     </button>
+                    {event.assignments.length > 0 && (
+                      <button
+                        onClick={rebalanceAssignments}
+                        title="Redistribute pending general-pool assignments to even out judge load. Scored + prize-scoped assignments are preserved."
+                        style={{
+                          background: "none",
+                          border: "1px solid var(--border-c)",
+                          borderRadius: 8,
+                          padding: "4px 10px",
+                          fontSize: 11,
+                          color: "var(--muted-c)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Rebalance
+                      </button>
+                    )}
                     {event.assignments.length > 0 && (
                       <button
                         onClick={clearAssignments}
@@ -2400,6 +2454,23 @@ export default function AdminPage() {
                     >
                       Auto-assign
                     </button>
+                    {event.assignments.length > 0 && (
+                      <button
+                        onClick={rebalanceAssignments}
+                        title="Redistribute pending general-pool assignments to even out judge load. Scored + prize-scoped assignments are preserved."
+                        style={{
+                          background: "none",
+                          border: "1px solid var(--border-c)",
+                          borderRadius: 8,
+                          padding: "5px 12px",
+                          fontSize: 11,
+                          color: "var(--muted-c)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Rebalance
+                      </button>
+                    )}
                     {event.assignments.length > 0 && (
                       <button
                         onClick={clearAssignments}

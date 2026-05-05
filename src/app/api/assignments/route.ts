@@ -24,6 +24,10 @@ export async function POST(req: NextRequest) {
     return handleAutoAssignPrize(eventId, body.autoAssignPrize);
   }
 
+  if (body.rebalance) {
+    return handleRebalance(eventId, body.judgesPerTeam || 3);
+  }
+
   const { judgeId, teamId } = body;
   if (!judgeId || !teamId) {
     return NextResponse.json(
@@ -213,6 +217,98 @@ async function handleAutoAssignPrize(eventId: string, prizeId: string) {
   return NextResponse.json(
     { created: createdCount, assignments: updated.assignments },
     { status: createdCount > 0 ? 201 : 200 }
+  );
+}
+
+async function handleRebalance(eventId: string, judgesPerTeam: number) {
+  const event = await getEvent(eventId);
+  if (!event) {
+    return NextResponse.json({ error: "No event found" }, { status: 404 });
+  }
+
+  if (event.judges.length === 0 || event.teams.length === 0) {
+    return NextResponse.json(
+      { error: "Need at least one judge and one team" },
+      { status: 400 }
+    );
+  }
+
+  const effectiveJudgesPerTeam = Math.min(judgesPerTeam, event.judges.length);
+
+  // Protected pairs survive the rebalance:
+  //   1. Any assignment whose status is not "pending" (judge has started or finished scoring)
+  //   2. Any (judgeId, teamId) pair baked into a prize's judgeIds x teamIds matrix
+  const protectedPairs = new Set<string>();
+  const key = (judgeId: string, teamId: string) => `${judgeId}::${teamId}`;
+
+  for (const prize of event.prizes ?? []) {
+    for (const jId of prize.judgeIds) {
+      for (const tId of prize.teamIds) {
+        protectedPairs.add(key(jId, tId));
+      }
+    }
+  }
+  for (const a of event.assignments) {
+    if (a.status !== "pending") protectedPairs.add(key(a.judgeId, a.teamId));
+  }
+
+  const keptAssignments = event.assignments.filter((a) =>
+    protectedPairs.has(key(a.judgeId, a.teamId))
+  );
+  const removedCount = event.assignments.length - keptAssignments.length;
+
+  // Seed judge load with protected assignments so filling prefers lightly-loaded judges.
+  const judgeLoad: Record<string, number> = {};
+  event.judges.forEach((j) => {
+    judgeLoad[j.id] = 0;
+  });
+  keptAssignments.forEach((a) => {
+    if (judgeLoad[a.judgeId] !== undefined) judgeLoad[a.judgeId]++;
+  });
+
+  const newAssignments: Assignment[] = [];
+  for (const team of event.teams) {
+    const existingJudgeIds = keptAssignments
+      .filter((a) => a.teamId === team.id)
+      .map((a) => a.judgeId);
+    const needed = effectiveJudgesPerTeam - existingJudgeIds.length;
+    if (needed <= 0) continue;
+
+    const available = event.judges
+      .filter((j) => !existingJudgeIds.includes(j.id))
+      .sort((a, b) => (judgeLoad[a.id] || 0) - (judgeLoad[b.id] || 0));
+
+    for (let i = 0; i < Math.min(needed, available.length); i++) {
+      const judge = available[i];
+      newAssignments.push({
+        id: uuidv4(),
+        judgeId: judge.id,
+        teamId: team.id,
+        scores: [],
+        notes: "",
+        status: "pending",
+      });
+      judgeLoad[judge.id] = (judgeLoad[judge.id] || 0) + 1;
+    }
+  }
+
+  const updated = await updateEvent(eventId, (ev) => ({
+    ...ev,
+    assignments: [...keptAssignments, ...newAssignments],
+  }));
+
+  if (!updated) {
+    return NextResponse.json({ error: "No event found" }, { status: 404 });
+  }
+
+  return NextResponse.json(
+    {
+      kept: keptAssignments.length,
+      removed: removedCount,
+      created: newAssignments.length,
+      assignments: updated.assignments,
+    },
+    { status: 200 }
   );
 }
 
