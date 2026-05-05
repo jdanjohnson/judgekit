@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { EventData, Team, Judge, Criterion } from "@/lib/types";
+import { EventData, Team, Judge, Criterion, Prize, Assignment } from "@/lib/types";
 
 export default function AdminPage() {
   const params = useParams();
@@ -24,6 +24,11 @@ export default function AdminPage() {
   const [critWeight, setCritWeight] = useState("1");
   const [judgesPerTeam, setJudgesPerTeam] = useState("3");
   const [bulkTeams, setBulkTeams] = useState(false);
+  const [devpostImporting, setDevpostImporting] = useState(false);
+  const [resultsSort, setResultsSort] = useState<{
+    key: string;
+    dir: "asc" | "desc";
+  }>({ key: "score", dir: "desc" });
   const [bulkTeamText, setBulkTeamText] = useState("");
   const [bulkJudges, setBulkJudges] = useState(false);
   const [bulkJudgeText, setBulkJudgeText] = useState("");
@@ -39,7 +44,14 @@ export default function AdminPage() {
   const [editCritMax, setEditCritMax] = useState("");
   const [editCritWeight, setEditCritWeight] = useState("");
   const [editCritDesc, setEditCritDesc] = useState("");
-  const [timerNow, setTimerNow] = useState(0);
+  const [prizeName, setPrizeName] = useState("");
+  const [prizeSponsor, setPrizeSponsor] = useState("");
+  const [prizeDesc, setPrizeDesc] = useState("");
+  const [editingPrizeId, setEditingPrizeId] = useState<string | null>(null);
+  const [editPrizeName, setEditPrizeName] = useState("");
+  const [editPrizeSponsor, setEditPrizeSponsor] = useState("");
+  const [editPrizeDesc, setEditPrizeDesc] = useState("");
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchEvent = useCallback(async () => {
@@ -168,6 +180,41 @@ export default function AdminPage() {
     }
     if (errors > 0) {
       toast.error(`${errors} line${errors > 1 ? "s" : ""} failed (need: name, table #)`);
+    }
+  }
+
+  async function importDevpostCSV(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setDevpostImporting(true);
+    try {
+      const text = await file.text();
+      const res = await fetch(`/api/import/devpost?${eq}`, {
+        method: "POST",
+        headers: { "Content-Type": "text/csv" },
+        body: text,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Import failed");
+        return;
+      }
+      const msg =
+        `Imported — ${data.added} added, ${data.skipped} already in, ` +
+        `${data.prizeLinks} prize opt-in${data.prizeLinks === 1 ? "" : "s"} wired`;
+      toast.success(msg);
+      if (data.unmappedOptIns && data.unmappedOptIns.length > 0) {
+        toast.message(
+          `Unmapped opt-ins: ${data.unmappedOptIns.join(", ")}. Create matching prizes and re-import to wire them.`,
+          { duration: 10000 },
+        );
+      }
+      fetchEvent();
+    } catch {
+      toast.error("Import failed");
+    } finally {
+      setDevpostImporting(false);
     }
   }
 
@@ -367,10 +414,11 @@ export default function AdminPage() {
   }
 
   async function updateEventSettings() {
+    const pin = sessionStorage.getItem("adminPin") ?? "";
     try {
       const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(pin ? { "x-admin-pin": pin } : {}) },
         body: JSON.stringify({
           name: editName,
           description: editDesc,
@@ -423,16 +471,159 @@ export default function AdminPage() {
     setEditCritDesc(c.description || "");
   }
 
-  async function toggleJudging() {
-    if (!event) return;
-    const isActive = (event.judgingStatus ?? "idle") === "active";
+  async function addPrize(e: React.FormEvent) {
+    e.preventDefault();
+    if (!prizeName.trim()) {
+      toast.error("Prize name is required");
+      return;
+    }
     try {
-      const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
+      const res = await fetch(`/api/prizes?${eq}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: prizeName.trim(),
+          sponsor: prizeSponsor.trim(),
+          description: prizeDesc.trim(),
+        }),
+      });
+      if (res.ok) {
+        toast.success("Prize added");
+        setPrizeName("");
+        setPrizeSponsor("");
+        setPrizeDesc("");
+        fetchEvent();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to add prize");
+      }
+    } catch {
+      toast.error("Failed to add prize");
+    }
+  }
+
+  function startEditPrize(p: Prize) {
+    setEditingPrizeId(p.id);
+    setEditPrizeName(p.name);
+    setEditPrizeSponsor(p.sponsor);
+    setEditPrizeDesc(p.description);
+  }
+
+  async function savePrizeEdit(id: string) {
+    try {
+      const res = await fetch(`/api/prizes?${eq}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          id,
+          name: editPrizeName,
+          sponsor: editPrizeSponsor,
+          description: editPrizeDesc,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Prize updated");
+        setEditingPrizeId(null);
+        fetchEvent();
+      } else {
+        toast.error("Failed to update prize");
+      }
+    } catch {
+      toast.error("Failed to update prize");
+    }
+  }
+
+  async function deletePrize(id: string) {
+    if (!confirm("Delete this prize? Existing judge assignments will be kept.")) return;
+    try {
+      const res = await fetch(`/api/prizes?${eq}&id=${id}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success("Prize removed");
+        fetchEvent();
+      } else {
+        toast.error("Failed to remove prize");
+      }
+    } catch {
+      toast.error("Failed to remove prize");
+    }
+  }
+
+  async function togglePrizeMembership(
+    prize: Prize,
+    field: "teamIds" | "judgeIds",
+    id: string,
+  ) {
+    const current = prize[field];
+    const next = current.includes(id)
+      ? current.filter((x) => x !== id)
+      : [...current, id];
+    try {
+      const res = await fetch(`/api/prizes?${eq}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: prize.id, [field]: next }),
+      });
+      if (res.ok) {
+        fetchEvent();
+      } else {
+        toast.error("Failed to update prize");
+      }
+    } catch {
+      toast.error("Failed to update prize");
+    }
+  }
+
+  async function autoAssignPrize(prizeId: string) {
+    try {
+      const res = await fetch(`/api/assignments?${eq}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoAssignPrize: prizeId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(
+          data.created > 0
+            ? `Created ${data.created} assignment${data.created > 1 ? "s" : ""}`
+            : "All judge \u2194 team pairs already exist",
+        );
+        fetchEvent();
+      } else {
+        toast.error(data.error || "Failed to auto-assign");
+      }
+    } catch {
+      toast.error("Failed to auto-assign");
+    }
+  }
+
+  async function toggleJudging() {
+    if (!event) return;
+    const isActive = (event.judgingStatus ?? "idle") === "active";
+    const wasStopped = (event.judgingStatus ?? "idle") === "stopped";
+    const pin = sessionStorage.getItem("adminPin") ?? "";
+
+    // When resuming from stopped, offset the start time so the timer continues seamlessly
+    let newStartedAt: string | null;
+    if (isActive) {
+      // Stopping: keep existing start time
+      newStartedAt = event.judgingStartedAt ?? null;
+    } else if (wasStopped && event.judgingStartedAt && event.judgingStoppedAt) {
+      // Resuming: compute elapsed time and offset start so timer continues
+      const previousElapsed =
+        new Date(event.judgingStoppedAt).getTime() - new Date(event.judgingStartedAt).getTime();
+      newStartedAt = new Date(Date.now() - previousElapsed).toISOString();
+    } else {
+      // Fresh start from idle
+      newStartedAt = new Date().toISOString();
+    }
+
+    try {
+      const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(pin ? { "x-admin-pin": pin } : {}) },
+        body: JSON.stringify({
           judgingStatus: isActive ? "stopped" : "active",
-          judgingStartedAt: isActive ? event.judgingStartedAt : new Date().toISOString(),
+          judgingStartedAt: newStartedAt,
           judgingStoppedAt: isActive ? new Date().toISOString() : null,
         }),
       });
@@ -448,10 +639,11 @@ export default function AdminPage() {
   }
 
   async function resetJudging() {
+    const pin = sessionStorage.getItem("adminPin") ?? "";
     try {
       const res = await fetch(`/api/event?id=${encodeURIComponent(eventId)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(pin ? { "x-admin-pin": pin } : {}) },
         body: JSON.stringify({
           judgingStatus: "idle",
           judgingStartedAt: null,
@@ -551,9 +743,19 @@ export default function AdminPage() {
           badge: String(event.criteria.length),
         },
         {
+          key: "prizes",
+          label: "Prizes",
+          badge: String((event.prizes ?? []).length),
+        },
+        {
           key: "assign",
           label: "Assignments",
           badge: String(event.assignments.length),
+        },
+        {
+          key: "results",
+          label: "Results",
+          badge: progressPercent === 100 ? "done" : `${progressPercent}%`,
         },
         { key: "share", label: "Share", badge: null },
         { key: "settings", label: "Settings", badge: null },
@@ -1079,7 +1281,7 @@ export default function AdminPage() {
               <div
                 style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
                   <button
                     onClick={() => setBulkTeams(!bulkTeams)}
                     style={{
@@ -1094,6 +1296,30 @@ export default function AdminPage() {
                   >
                     {bulkTeams ? "Single add" : "Bulk import"}
                   </button>
+                  <label
+                    title="Import submissions + prize opt-ins from a Devpost projects CSV. Safe to re-run — existing teams are skipped."
+                    style={{
+                      background: "none",
+                      border: "1px solid var(--border-c)",
+                      borderRadius: 8,
+                      color: devpostImporting ? "#bff066" : "var(--muted-c)",
+                      padding: "5px 12px",
+                      fontSize: 11,
+                      cursor: devpostImporting ? "wait" : "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    {devpostImporting ? "Importing…" : "Import Devpost CSV"}
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      disabled={devpostImporting}
+                      style={{ display: "none" }}
+                      onChange={importDevpostCSV}
+                    />
+                  </label>
                 </div>
 
                 {bulkTeams ? (
@@ -1735,6 +1961,402 @@ export default function AdminPage() {
             </>
           )}
 
+          {/* Prizes */}
+          {activeTab === "prizes" && (
+            <>
+              <div
+                style={{
+                  padding: "13px 16px",
+                  borderBottom: "1px solid var(--border-c)",
+                }}
+              >
+                <h2
+                  className="font-serif"
+                  style={{ fontSize: 17, fontWeight: 200 }}
+                >
+                  Prizes
+                </h2>
+                <div style={{ fontSize: 11, color: "var(--hint)", marginTop: 4 }}>
+                  Sponsor challenges teams opt into. Assign judges, mark opted-in teams, then click &ldquo;Assign judges&rdquo; to create scoring assignments.
+                </div>
+              </div>
+              <div
+                style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}
+              >
+                <form
+                  onSubmit={addPrize}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr auto",
+                    gap: 8,
+                    marginBottom: 16,
+                    alignItems: "end",
+                  }}
+                >
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: "var(--hint)",
+                        marginBottom: 4,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      Prize name
+                    </label>
+                    <input
+                      style={inputStyle}
+                      placeholder="Best use of Mux + AI"
+                      value={prizeName}
+                      onChange={(e) => setPrizeName(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: "var(--hint)",
+                        marginBottom: 4,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      Sponsor
+                    </label>
+                    <input
+                      style={inputStyle}
+                      placeholder="Mux"
+                      value={prizeSponsor}
+                      onChange={(e) => setPrizeSponsor(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    style={{
+                      background: "#bff066",
+                      border: "none",
+                      borderRadius: 8,
+                      color: "#0c0c0d",
+                      padding: "8px 12px",
+                      fontSize: 11,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    + Add prize
+                  </button>
+                </form>
+
+                {(event.prizes ?? []).length === 0 && (
+                  <div
+                    style={{
+                      textAlign: "center",
+                      color: "var(--hint)",
+                      fontSize: 12,
+                      padding: "24px 0",
+                    }}
+                  >
+                    No prizes yet. Add a sponsor challenge above.
+                  </div>
+                )}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  {(event.prizes ?? []).map((prize: Prize) => {
+                    const optedTeamCount = prize.teamIds.length;
+                    const judgeCount = prize.judgeIds.length;
+                    const pairsPlanned = optedTeamCount * judgeCount;
+                    const pairsExisting = event.assignments.filter(
+                      (a) =>
+                        prize.judgeIds.includes(a.judgeId) &&
+                        prize.teamIds.includes(a.teamId),
+                    ).length;
+                    const pairsMissing = Math.max(0, pairsPlanned - pairsExisting);
+                    const isEditing = editingPrizeId === prize.id;
+                    return (
+                      <div
+                        key={prize.id}
+                        style={{
+                          border: "1px solid var(--border-c)",
+                          borderRadius: 10,
+                          background: "var(--s1)",
+                          padding: "12px 14px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 10,
+                        }}
+                      >
+                        {isEditing ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <input
+                              style={inputStyle}
+                              placeholder="Prize name"
+                              value={editPrizeName}
+                              onChange={(e) => setEditPrizeName(e.target.value)}
+                            />
+                            <input
+                              style={inputStyle}
+                              placeholder="Sponsor"
+                              value={editPrizeSponsor}
+                              onChange={(e) => setEditPrizeSponsor(e.target.value)}
+                            />
+                            <textarea
+                              style={{ ...inputStyle, minHeight: 60, fontFamily: "inherit" }}
+                              placeholder="Optional description / rules"
+                              value={editPrizeDesc}
+                              onChange={(e) => setEditPrizeDesc(e.target.value)}
+                            />
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <button
+                                onClick={() => savePrizeEdit(prize.id)}
+                                style={{
+                                  background: "#bff066",
+                                  color: "#0c0c0d",
+                                  border: "none",
+                                  borderRadius: 8,
+                                  padding: "6px 12px",
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setEditingPrizeId(null)}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid var(--border-c)",
+                                  borderRadius: 8,
+                                  padding: "6px 12px",
+                                  fontSize: 11,
+                                  color: "var(--muted-c)",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "flex-start",
+                              gap: 12,
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{
+                                  fontSize: 14,
+                                  fontWeight: 500,
+                                  color: "var(--text-c)",
+                                }}
+                              >
+                                {prize.name}
+                              </div>
+                              {prize.sponsor && (
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#bff066",
+                                    marginTop: 2,
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.06em",
+                                  }}
+                                >
+                                  {prize.sponsor}
+                                </div>
+                              )}
+                              {prize.description && (
+                                <div
+                                  style={{
+                                    fontSize: 12,
+                                    color: "var(--muted-c)",
+                                    marginTop: 4,
+                                    lineHeight: 1.5,
+                                  }}
+                                >
+                                  {prize.description}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                              <button
+                                onClick={() => startEditPrize(prize)}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid var(--border-c)",
+                                  borderRadius: 8,
+                                  padding: "4px 10px",
+                                  fontSize: 11,
+                                  color: "var(--muted-c)",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => deletePrize(prize.id)}
+                                style={{
+                                  background: "none",
+                                  border: "1px solid var(--border-c)",
+                                  borderRadius: 8,
+                                  padding: "4px 10px",
+                                  fontSize: 11,
+                                  color: "var(--hint)",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: 12,
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                fontSize: 10,
+                                color: "var(--hint)",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.07em",
+                                marginBottom: 6,
+                              }}
+                            >
+                              Judges on this prize ({judgeCount})
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {event.judges.length === 0 && (
+                                <div style={{ fontSize: 11, color: "var(--hint)" }}>
+                                  No judges yet
+                                </div>
+                              )}
+                              {event.judges.map((j) => {
+                                const active = prize.judgeIds.includes(j.id);
+                                return (
+                                  <button
+                                    key={j.id}
+                                    onClick={() =>
+                                      togglePrizeMembership(prize, "judgeIds", j.id)
+                                    }
+                                    style={{
+                                      background: active ? "#bff066" : "transparent",
+                                      color: active ? "#0c0c0d" : "var(--muted-c)",
+                                      border: `1px solid ${active ? "#bff066" : "var(--border-c)"}`,
+                                      borderRadius: 999,
+                                      padding: "3px 10px",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    {j.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div
+                              style={{
+                                fontSize: 10,
+                                color: "var(--hint)",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.07em",
+                                marginBottom: 6,
+                              }}
+                            >
+                              Teams opted in ({optedTeamCount})
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {event.teams.length === 0 && (
+                                <div style={{ fontSize: 11, color: "var(--hint)" }}>
+                                  No teams yet
+                                </div>
+                              )}
+                              {event.teams.map((t) => {
+                                const active = prize.teamIds.includes(t.id);
+                                return (
+                                  <button
+                                    key={t.id}
+                                    onClick={() =>
+                                      togglePrizeMembership(prize, "teamIds", t.id)
+                                    }
+                                    style={{
+                                      background: active ? "#bff066" : "transparent",
+                                      color: active ? "#0c0c0d" : "var(--muted-c)",
+                                      border: `1px solid ${active ? "#bff066" : "var(--border-c)"}`,
+                                      borderRadius: 999,
+                                      padding: "3px 10px",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                    }}
+                                    title={t.projectName || ""}
+                                  >
+                                    {t.name}
+                                    {t.tableNumber ? ` \u00b7 #${t.tableNumber}` : ""}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            borderTop: "1px solid var(--border-c)",
+                            paddingTop: 10,
+                          }}
+                        >
+                          <div style={{ fontSize: 11, color: "var(--muted-c)" }}>
+                            {pairsPlanned === 0
+                              ? "Pick at least one judge and one team to enable auto-assign"
+                              : pairsMissing === 0
+                                ? `All ${pairsPlanned} assignment${pairsPlanned === 1 ? "" : "s"} created`
+                                : `${pairsMissing} new assignment${pairsMissing === 1 ? "" : "s"} will be created (${pairsExisting} already exist)`}
+                          </div>
+                          <button
+                            onClick={() => autoAssignPrize(prize.id)}
+                            disabled={pairsPlanned === 0}
+                            style={{
+                              background: pairsPlanned === 0 ? "var(--s2)" : "#bff066",
+                              color: pairsPlanned === 0 ? "var(--hint)" : "#0c0c0d",
+                              border: "none",
+                              borderRadius: 8,
+                              padding: "6px 12px",
+                              fontSize: 11,
+                              fontWeight: 500,
+                              cursor: pairsPlanned === 0 ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            Assign judges \u2192 opted-in teams
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
           {/* Assignments */}
           {activeTab === "assign" && (() => {
             const minJudges = Number(judgesPerTeam) || 3;
@@ -2102,6 +2724,409 @@ export default function AdminPage() {
                       }}
                     >
                       Add teams and judges first
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+
+          {/* Results */}
+          {activeTab === "results" && (() => {
+            const ev = event!;
+            const useWeighted = ev.useWeightedScoring ?? true;
+
+            function scoreAssignment(a: Assignment): number | null {
+              if (a.status !== "completed" || a.scores.length === 0) return null;
+              if (useWeighted) {
+                let wSum = 0;
+                let wTotal = 0;
+                for (const c of ev.criteria) {
+                  const s = a.scores.find((x) => x.criterionId === c.id);
+                  if (s) {
+                    wSum += (s.value / c.maxScore) * c.weight;
+                    wTotal += c.weight;
+                  }
+                }
+                return wTotal > 0 ? (wSum / wTotal) * 100 : null;
+              }
+              let sum = 0;
+              let n = 0;
+              for (const c of ev.criteria) {
+                const s = a.scores.find((x) => x.criterionId === c.id);
+                if (s) {
+                  sum += (s.value / c.maxScore) * 100;
+                  n++;
+                }
+              }
+              return n > 0 ? sum / n : null;
+            }
+
+            type Row = {
+              team: Team;
+              avg: number;
+              completed: number;
+              total: number;
+              perCrit: Record<string, number | null>;
+            };
+
+            function buildLeaderboard(teams: Team[], assignments: Assignment[]): Row[] {
+              const rows: Row[] = teams.map((t) => {
+                const teamAssigns = assignments.filter((a) => a.teamId === t.id);
+                const scored = teamAssigns
+                  .map(scoreAssignment)
+                  .filter((x): x is number => x !== null);
+                const avg = scored.length > 0
+                  ? scored.reduce((s, v) => s + v, 0) / scored.length
+                  : 0;
+                const perCrit: Record<string, number | null> = {};
+                for (const c of ev.criteria) {
+                  const vals: number[] = [];
+                  for (const a of teamAssigns.filter((x) => x.status === "completed")) {
+                    const s = a.scores.find((x) => x.criterionId === c.id);
+                    if (s) vals.push((s.value / c.maxScore) * 100);
+                  }
+                  perCrit[c.id] = vals.length > 0
+                    ? vals.reduce((s, v) => s + v, 0) / vals.length
+                    : null;
+                }
+                return {
+                  team: t,
+                  avg,
+                  completed: teamAssigns.filter((a) => a.status === "completed").length,
+                  total: teamAssigns.length,
+                  perCrit,
+                };
+              });
+              return rows;
+            }
+
+            function sortRows(
+              rows: Row[],
+              override?: { key: string; dir: "asc" | "desc" },
+            ): Row[] {
+              const { key, dir } = override ?? resultsSort;
+              const mult = dir === "asc" ? 1 : -1;
+              const sorted = [...rows].sort((a, b) => {
+                if (key === "team") {
+                  return a.team.name.localeCompare(b.team.name) * mult;
+                }
+                if (key === "completed") {
+                  return (a.completed - b.completed) * mult;
+                }
+                if (key.startsWith("crit:")) {
+                  const critId = key.slice(5);
+                  const av = a.perCrit[critId];
+                  const bv = b.perCrit[critId];
+                  if (av === null && bv === null) return 0;
+                  if (av === null) return 1;
+                  if (bv === null) return -1;
+                  return (av - bv) * mult;
+                }
+                // default: score
+                return (a.avg - b.avg) * mult || (a.completed - b.completed) * mult;
+              });
+              return sorted;
+            }
+
+            function toggleSort(nextKey: string, numericDefault = true) {
+              setResultsSort((cur) => {
+                if (cur.key === nextKey) {
+                  return { key: nextKey, dir: cur.dir === "asc" ? "desc" : "asc" };
+                }
+                return { key: nextKey, dir: numericDefault ? "desc" : "asc" };
+              });
+            }
+
+            function sortArrow(
+              key: string,
+              state: { key: string; dir: "asc" | "desc" } = resultsSort,
+            ) {
+              if (state.key !== key) return "";
+              return state.dir === "asc" ? " \u2191" : " \u2193";
+            }
+
+            const sortableThBase = {
+              ...thStyle,
+              cursor: "pointer",
+              userSelect: "none" as const,
+            };
+
+            const overall = sortRows(buildLeaderboard(ev.teams, ev.assignments));
+
+            return (
+              <>
+                <div
+                  style={{
+                    padding: "13px 16px",
+                    borderBottom: "1px solid var(--border-c)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <h2 className="font-serif" style={{ fontSize: 17, fontWeight: 200 }}>
+                    Results
+                  </h2>
+                  <div style={{ fontSize: 11, color: "var(--hint)" }}>
+                    {useWeighted ? "Weighted" : "Unweighted"} \u00b7 scores on 0\u2013100 scale
+                  </div>
+                </div>
+                <div style={{ flex: 1, padding: "14px 16px", overflowY: "auto" }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--hint)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.07em",
+                      marginBottom: 8,
+                    }}
+                  >
+                    Overall leaderboard
+                  </div>
+                  {ev.teams.length === 0 ? (
+                    <div style={{ fontSize: 12, color: "var(--hint)" }}>No teams yet.</div>
+                  ) : (
+                    <table style={tblStyle}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...thStyle, width: 40 }}>#</th>
+                          <th
+                            style={{ ...sortableThBase }}
+                            onClick={() => toggleSort("team", false)}
+                          >
+                            Team{sortArrow("team")}
+                          </th>
+                          <th
+                            style={{ ...sortableThBase, width: 80, textAlign: "right" }}
+                            onClick={() => toggleSort("score")}
+                          >
+                            Score{sortArrow("score")}
+                          </th>
+                          <th
+                            style={{ ...sortableThBase, width: 90, textAlign: "right" }}
+                            onClick={() => toggleSort("completed")}
+                          >
+                            Completed{sortArrow("completed")}
+                          </th>
+                          {ev.criteria.map((c) => (
+                            <th
+                              key={c.id}
+                              style={{ ...sortableThBase, width: 60, textAlign: "right" }}
+                              title={c.name}
+                              onClick={() => toggleSort(`crit:${c.id}`)}
+                            >
+                              {c.name.length > 8 ? `${c.name.slice(0, 7)}\u2026` : c.name}
+                              {sortArrow(`crit:${c.id}`)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {overall.map((row, i) => (
+                          <tr key={row.team.id}>
+                            <td style={{ ...tdStyle, color: "var(--hint)" }}>{i + 1}</td>
+                            <td style={tdStyle}>
+                              <div style={{ fontWeight: 500 }}>{row.team.name}</div>
+                              {row.team.projectName && (
+                                <div style={{ fontSize: 11, color: "var(--hint)" }}>
+                                  {row.team.projectName}
+                                  {row.team.tableNumber ? ` \u00b7 #${row.team.tableNumber}` : ""}
+                                </div>
+                              )}
+                            </td>
+                            <td
+                              style={{
+                                ...tdStyle,
+                                textAlign: "right",
+                                fontVariantNumeric: "tabular-nums",
+                                fontWeight: 500,
+                                color: row.completed > 0 ? "#bff066" : "var(--hint)",
+                              }}
+                            >
+                              {row.completed > 0 ? row.avg.toFixed(1) : "\u2014"}
+                            </td>
+                            <td
+                              style={{
+                                ...tdStyle,
+                                textAlign: "right",
+                                fontVariantNumeric: "tabular-nums",
+                                color: "var(--muted-c)",
+                              }}
+                            >
+                              {row.completed} / {row.total}
+                            </td>
+                            {ev.criteria.map((c) => (
+                              <td
+                                key={c.id}
+                                style={{
+                                  ...tdStyle,
+                                  textAlign: "right",
+                                  fontVariantNumeric: "tabular-nums",
+                                  color: "var(--muted-c)",
+                                }}
+                              >
+                                {row.perCrit[c.id] !== null
+                                  ? (row.perCrit[c.id] ?? 0).toFixed(0)
+                                  : "\u2014"}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {(ev.prizes ?? []).length > 0 && (
+                    <div style={{ marginTop: 24 }}>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "var(--hint)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.07em",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Prize leaderboards
+                      </div>
+                      {(ev.prizes ?? []).map((prize) => {
+                        const prizeTeams = ev.teams.filter((t) => prize.teamIds.includes(t.id));
+                        // Rank opted-in teams using every judge's score of that team,
+                        // not just the prize's assigned judges. Added judges outside
+                        // the prize's ownership still count toward the leaderboard.
+                        const prizeAssigns = ev.assignments.filter((a) =>
+                          prize.teamIds.includes(a.teamId),
+                        );
+                        // Prize tables don't have per-criterion columns, so if
+                        // the overall table is sorted by a criterion, fall back
+                        // to score-desc for the prize tables instead of
+                        // silently rearranging them by an invisible key.
+                        const prizeSort = resultsSort.key.startsWith("crit:")
+                          ? ({ key: "score", dir: "desc" } as const)
+                          : resultsSort;
+                        const prizeRows = sortRows(
+                          buildLeaderboard(prizeTeams, prizeAssigns),
+                          prizeSort,
+                        );
+                        return (
+                          <div
+                            key={prize.id}
+                            style={{
+                              border: "1px solid var(--border-c)",
+                              borderRadius: 10,
+                              background: "var(--s1)",
+                              padding: "12px 14px",
+                              marginBottom: 12,
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "baseline",
+                                marginBottom: 8,
+                              }}
+                            >
+                              <div>
+                                <span style={{ fontSize: 13, fontWeight: 500 }}>{prize.name}</span>
+                                {prize.sponsor && (
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      color: "#bff066",
+                                      marginLeft: 8,
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.06em",
+                                    }}
+                                  >
+                                    {prize.sponsor}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 10, color: "var(--hint)" }}>
+                                {prizeTeams.length} team{prizeTeams.length === 1 ? "" : "s"} \u00b7{" "}
+                                {prize.judgeIds.length} judge{prize.judgeIds.length === 1 ? "" : "s"}
+                              </div>
+                            </div>
+                            {prizeTeams.length === 0 ? (
+                              <div style={{ fontSize: 11, color: "var(--hint)", padding: "8px 0" }}>
+                                No teams opted in.
+                              </div>
+                            ) : (
+                              <table style={tblStyle}>
+                                <thead>
+                                  <tr>
+                                    <th style={{ ...thStyle, width: 30 }}>#</th>
+                                    <th
+                                      style={{ ...sortableThBase }}
+                                      onClick={() => toggleSort("team", false)}
+                                    >
+                                      Team{sortArrow("team", prizeSort)}
+                                    </th>
+                                    <th
+                                      style={{
+                                        ...sortableThBase,
+                                        width: 70,
+                                        textAlign: "right",
+                                      }}
+                                      onClick={() => toggleSort("score")}
+                                    >
+                                      Score{sortArrow("score", prizeSort)}
+                                    </th>
+                                    <th
+                                      style={{
+                                        ...sortableThBase,
+                                        width: 80,
+                                        textAlign: "right",
+                                      }}
+                                      onClick={() => toggleSort("completed")}
+                                    >
+                                      Completed{sortArrow("completed", prizeSort)}
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {prizeRows.map((row, i) => (
+                                    <tr key={row.team.id}>
+                                      <td style={{ ...tdStyle, color: "var(--hint)" }}>{i + 1}</td>
+                                      <td style={tdStyle}>
+                                        <div style={{ fontWeight: 500 }}>{row.team.name}</div>
+                                        {row.team.projectName && (
+                                          <div style={{ fontSize: 11, color: "var(--hint)" }}>
+                                            {row.team.projectName}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td
+                                        style={{
+                                          ...tdStyle,
+                                          textAlign: "right",
+                                          fontVariantNumeric: "tabular-nums",
+                                          fontWeight: 500,
+                                          color: row.completed > 0 ? "#bff066" : "var(--hint)",
+                                        }}
+                                      >
+                                        {row.completed > 0 ? row.avg.toFixed(1) : "\u2014"}
+                                      </td>
+                                      <td
+                                        style={{
+                                          ...tdStyle,
+                                          textAlign: "right",
+                                          fontVariantNumeric: "tabular-nums",
+                                          color: "var(--muted-c)",
+                                        }}
+                                      >
+                                        {row.completed} / {row.total}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

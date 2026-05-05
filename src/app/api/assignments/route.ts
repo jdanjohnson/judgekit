@@ -20,6 +20,10 @@ export async function POST(req: NextRequest) {
     return handleAutoAssign(eventId, body.judgesPerTeam || 3);
   }
 
+  if (body.autoAssignPrize) {
+    return handleAutoAssignPrize(eventId, body.autoAssignPrize);
+  }
+
   const { judgeId, teamId } = body;
   if (!judgeId || !teamId) {
     return NextResponse.json(
@@ -65,74 +69,150 @@ export async function POST(req: NextRequest) {
 }
 
 async function handleAutoAssign(eventId: string, judgesPerTeam: number) {
-  const event = await getEvent(eventId);
-  if (!event) {
+  const precheck = await getEvent(eventId);
+  if (!precheck) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
 
-  if (event.judges.length === 0 || event.teams.length === 0) {
+  if (precheck.judges.length === 0 || precheck.teams.length === 0) {
     return NextResponse.json(
       { error: "Need at least one judge and one team" },
       { status: 400 }
     );
   }
 
-  const effectiveJudgesPerTeam = Math.min(
-    judgesPerTeam,
-    event.judges.length
-  );
+  let createdCount = 0;
+  const updated = await updateEvent(eventId, (ev) => {
+    const effectiveJudgesPerTeam = Math.min(judgesPerTeam, ev.judges.length);
 
-  const newAssignments: Assignment[] = [];
-  const judgeLoad: Record<string, number> = {};
-  event.judges.forEach((j) => {
-    judgeLoad[j.id] = 0;
-  });
+    const judgeLoad: Record<string, number> = {};
+    ev.judges.forEach((j) => {
+      judgeLoad[j.id] = 0;
+    });
+    ev.assignments.forEach((a) => {
+      if (judgeLoad[a.judgeId] !== undefined) {
+        judgeLoad[a.judgeId]++;
+      }
+    });
 
-  event.assignments.forEach((a) => {
-    if (judgeLoad[a.judgeId] !== undefined) {
-      judgeLoad[a.judgeId]++;
+    const toAdd: Assignment[] = [];
+    for (const team of ev.teams) {
+      const existingJudgeIds = ev.assignments
+        .filter((a) => a.teamId === team.id)
+        .map((a) => a.judgeId);
+
+      const needed = effectiveJudgesPerTeam - existingJudgeIds.length;
+      if (needed <= 0) continue;
+
+      const available = ev.judges
+        .filter((j) => !existingJudgeIds.includes(j.id))
+        .sort((a, b) => (judgeLoad[a.id] || 0) - (judgeLoad[b.id] || 0));
+
+      for (let i = 0; i < Math.min(needed, available.length); i++) {
+        const judge = available[i];
+        toAdd.push({
+          id: uuidv4(),
+          judgeId: judge.id,
+          teamId: team.id,
+          scores: [],
+          notes: "",
+          status: "pending",
+        });
+        judgeLoad[judge.id] = (judgeLoad[judge.id] || 0) + 1;
+      }
     }
+
+    createdCount = toAdd.length;
+    return {
+      ...ev,
+      assignments: [...ev.assignments, ...toAdd],
+    };
   });
-
-  for (const team of event.teams) {
-    const existingJudgeIds = event.assignments
-      .filter((a) => a.teamId === team.id)
-      .map((a) => a.judgeId);
-
-    const needed = effectiveJudgesPerTeam - existingJudgeIds.length;
-    if (needed <= 0) continue;
-
-    const available = event.judges
-      .filter((j) => !existingJudgeIds.includes(j.id))
-      .sort((a, b) => (judgeLoad[a.id] || 0) - (judgeLoad[b.id] || 0));
-
-    for (let i = 0; i < Math.min(needed, available.length); i++) {
-      const judge = available[i];
-      const assignment: Assignment = {
-        id: uuidv4(),
-        judgeId: judge.id,
-        teamId: team.id,
-        scores: [],
-        notes: "",
-        status: "pending",
-      };
-      newAssignments.push(assignment);
-      judgeLoad[judge.id] = (judgeLoad[judge.id] || 0) + 1;
-    }
-  }
-
-  const updated = await updateEvent(eventId, (ev) => ({
-    ...ev,
-    assignments: [...ev.assignments, ...newAssignments],
-  }));
 
   if (!updated) {
     return NextResponse.json({ error: "No event found" }, { status: 404 });
   }
 
   return NextResponse.json(
-    { created: newAssignments.length, assignments: updated.assignments },
+    { created: createdCount, assignments: updated.assignments },
     { status: 201 }
+  );
+}
+
+async function handleAutoAssignPrize(eventId: string, prizeId: string) {
+  const precheck = await getEvent(eventId);
+  if (!precheck) {
+    return NextResponse.json({ error: "No event found" }, { status: 404 });
+  }
+
+  const prize = (precheck.prizes ?? []).find((p) => p.id === prizeId);
+  if (!prize) {
+    return NextResponse.json({ error: "Prize not found" }, { status: 404 });
+  }
+
+  const validTeamIds = new Set(precheck.teams.map((t) => t.id));
+  const validJudgeIds = new Set(precheck.judges.map((j) => j.id));
+  const teamIds = prize.teamIds.filter((id) => validTeamIds.has(id));
+  const judgeIds = prize.judgeIds.filter((id) => validJudgeIds.has(id));
+
+  if (judgeIds.length === 0 || teamIds.length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Prize needs at least one opted-in team and one assigned judge before auto-assigning.",
+      },
+      { status: 400 }
+    );
+  }
+
+  let createdCount = 0;
+  const updated = await updateEvent(eventId, (ev) => {
+    // Re-filter against the fresh snapshot to stay correct under concurrent
+    // judge/team deletions, and re-check existing pairs to close the TOCTOU.
+    const freshValidTeamIds = new Set(ev.teams.map((t) => t.id));
+    const freshValidJudgeIds = new Set(ev.judges.map((j) => j.id));
+    const freshPrize = (ev.prizes ?? []).find((p) => p.id === prizeId);
+    const freshTeamIds =
+      freshPrize?.teamIds.filter((id) => freshValidTeamIds.has(id)) ?? [];
+    const freshJudgeIds =
+      freshPrize?.judgeIds.filter((id) => freshValidJudgeIds.has(id)) ?? [];
+
+    const existingPairs = new Set(
+      ev.assignments.map((a) => `${a.judgeId}::${a.teamId}`)
+    );
+
+    const toAdd: Assignment[] = [];
+    for (const judgeId of freshJudgeIds) {
+      for (const teamId of freshTeamIds) {
+        const key = `${judgeId}::${teamId}`;
+        if (existingPairs.has(key)) continue;
+        existingPairs.add(key);
+        toAdd.push({
+          id: uuidv4(),
+          judgeId,
+          teamId,
+          scores: [],
+          notes: "",
+          status: "pending",
+        });
+      }
+    }
+
+    createdCount = toAdd.length;
+    if (toAdd.length === 0) return ev;
+    return {
+      ...ev,
+      assignments: [...ev.assignments, ...toAdd],
+    };
+  });
+
+  if (!updated) {
+    return NextResponse.json({ error: "No event found" }, { status: 404 });
+  }
+
+  return NextResponse.json(
+    { created: createdCount, assignments: updated.assignments },
+    { status: createdCount > 0 ? 201 : 200 }
   );
 }
 

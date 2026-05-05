@@ -19,7 +19,9 @@ function getRedis(): Redis {
 export async function getEvent(eventId: string): Promise<EventData | null> {
   const redis = getRedis();
   const data = await redis.get<EventData>(`event:${eventId}`);
-  return data ?? null;
+  if (!data) return null;
+  // Backfill fields introduced after older events were written.
+  return { ...data, prizes: data.prizes ?? [] };
 }
 
 export async function setEvent(event: EventData): Promise<EventData> {
